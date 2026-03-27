@@ -1,0 +1,39 @@
+model:
+  base_model: "openai/whisper-small"
+  language: "tamil"
+  task: "transcribe"
+
+lora:
+  r: 32
+  lora_alpha: 64
+  target_modules:
+    - "q_proj"
+    - "v_proj"
+  lora_dropout: 0.05
+  bias: "none"
+
+training:
+  output_dir: "./checkpoints"
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 1.0e-3
+  warmup_steps: 50
+  evaluation_strategy: "steps"
+  eval_steps: 100
+  save_steps: 200
+  logging_steps: 25
+  fp16: true
+  dataloader_num_workers: 0
+  load_best_model_at_end: true
+  metric_for_best_model: "wer"
+  greater_is_better: false
+  optim: "adamw_8bit"
+
+data:
+  train_split: "train"
+  val_split: "validation"
+  max_audio_length_seconds: 30
+  oversample_code_switched: 3
+  oversample_switch_boundary: 2
+  undersample_monolingual: 0.5
