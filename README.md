@@ -33,14 +33,14 @@ specific failure categories?"
 ## Architecture
 
 ```
-IndicVoices Tamil (HuggingFace, streaming)
+SPRINGLab/IndicVoices-R_Tamil  +  librispeech_asr/clean
         │
         ▼
 data/prepare_dataset.py
-  • Resample to 16kHz mono
-  • Chunk to 30s max
+  • Resample to 16kHz mono, trim segments to 2–8s
+  • Synthetic code-switching: Tamil + 0.1s silence + English
   • Tag: monolingual_tamil | monolingual_english | code_switched
-  • Count language switch points
+  • Target mix: 40% CS, 35% Tamil, 25% English (200 samples default)
   • Stratified 80/10/10 split
         │
         ├──────────────────────────┐
@@ -71,6 +71,20 @@ Five failure categories identified and used to guide fine-tuning data strategy:
 | `SUBSTITUTION_NUMBER` | Number, date, or digit sequence transcribed incorrectly |
 | `LANGUAGE_CONFUSION` | Tamil word transcribed in English script or vice versa |
 | `INSERTION_FILLER` | Hallucinated filler word (um, uh, like, you know) |
+
+## Datasets
+
+| Role | Dataset | HuggingFace ID |
+|---|---|---|
+| Monolingual Tamil | IndicVoices-R Tamil | `SPRINGLab/IndicVoices-R_Tamil` |
+| Monolingual English | LibriSpeech clean | `librispeech_asr` (clean/train.100) |
+| Code-switched | Synthetic (Tamil+English) | constructed in `data/prepare_dataset.py` |
+
+> **Why synthetic?** Public Tamil-English code-switched ASR datasets (e.g. MUCS 2021) are
+> not available on HuggingFace. Real Tanglish corpora (IndicVoices, FLEURS) transcribe
+> English loanwords in Tamil script, making language detection impossible at the text level.
+> Synthetic concatenation produces ground-truth mixed transcripts and a real language switch
+> point in the audio.
 
 ## Models Evaluated
 
