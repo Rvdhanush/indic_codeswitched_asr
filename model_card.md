@@ -56,7 +56,7 @@ WER on IndicVoices Tamil held-out test set, stratified by segment type:
 | Code-switched | — | — | — |
 | CS Penalty (×) | — | — | — |
 
-> Results will be populated after the evaluation run. See `results/baseline_wer_all.json` and `results/failure_analysis_report.md` in the [training repository](https://github.com/YOUR_USERNAME/indic_codeswitched_asr).
+> Results will be populated after the evaluation run. See `results/baseline_wer_all.json` and `results/failure_analysis_report.md` in the [training repository](https://github.com/Rvdhanush/indic_codeswitched_asr).
 
 ### Failure Taxonomy
 
@@ -94,7 +94,7 @@ from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from peft import PeftModel
 
 base_model_id = "openai/whisper-small"
-adapter_model_id = "YOUR_USERNAME/whisper-small-tanglish-lora"
+adapter_model_id = "Rvdhanush/whisper-small-tanglish-lora"
 
 processor = WhisperProcessor.from_pretrained(adapter_model_id)
 base = WhisperForConditionalGeneration.from_pretrained(base_model_id)
@@ -126,10 +126,10 @@ curl -X POST http://localhost:8000/transcribe -F "audio=@speech.wav"
 
 ```bibtex
 @misc{whisper-small-tanglish-lora,
-  author    = {YOUR_NAME},
+  author    = {Rvdhanush},
   title     = {Whisper-small fine-tuned for Tamil-English code-switched ASR},
   year      = {2026},
   publisher = {HuggingFace},
-  url       = {https://huggingface.co/YOUR_USERNAME/whisper-small-tanglish-lora}
+  url       = {https://huggingface.co/Rvdhanush/whisper-small-tanglish-lora}
 }
 ```
