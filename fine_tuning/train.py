@@ -200,6 +200,9 @@ def compute_metrics_fn(processor):
 
 def train(config_path: str = "fine_tuning/config.yaml"):
     """Main training function."""
+    if os.name == 'nt':  # Windows: W&B service startup fails
+        os.environ['WANDB_MODE'] = 'disabled'
+
     config = load_config(config_path)
 
     if WANDB_KEY:
