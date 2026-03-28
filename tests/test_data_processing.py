@@ -7,8 +7,8 @@ Tests only the pure processing functions — no HuggingFace downloads required.
 import numpy as np
 import pytest
 from data.prepare_dataset import (
-    resample_audio,
-    chunk_audio,
+    _resample,
+    _trim_to_window,
     tag_segment_type,
     count_switch_points,
     detect_language_mix,
@@ -19,65 +19,63 @@ TARGET_SR = 16_000
 
 
 # ---------------------------------------------------------------------------
-# resample_audio
+# _resample
 # ---------------------------------------------------------------------------
 
-class TestResampleAudio:
+class TestResample:
     def test_already_correct_sr(self):
         audio = np.ones(TARGET_SR, dtype=np.float32)
-        result = resample_audio(audio, TARGET_SR)
+        result = _resample(audio, TARGET_SR)
         assert len(result) == TARGET_SR
         assert result.dtype == np.float32
 
     def test_downsamples_from_44100(self):
         audio = np.random.randn(44100).astype(np.float32)
-        result = resample_audio(audio, 44100)
+        result = _resample(audio, 44100)
         # resampled length should be ~16000 (within 5%)
         assert abs(len(result) - TARGET_SR) < TARGET_SR * 0.05
 
     def test_stereo_collapsed_to_mono(self):
         # shape (2, N) — two channels
         audio = np.random.randn(2, TARGET_SR).astype(np.float32)
-        result = resample_audio(audio, TARGET_SR)
+        result = _resample(audio, TARGET_SR)
         assert result.ndim == 1
 
     def test_output_dtype_is_float32(self):
         audio = np.ones(TARGET_SR, dtype=np.float64)
-        result = resample_audio(audio, TARGET_SR)
+        result = _resample(audio, TARGET_SR)
         assert result.dtype == np.float32
 
 
 # ---------------------------------------------------------------------------
-# chunk_audio
+# _trim_to_window
 # ---------------------------------------------------------------------------
 
-class TestChunkAudio:
-    def test_short_audio_not_chunked(self):
-        audio = np.zeros(TARGET_SR * 10)  # 10 seconds
-        chunks = chunk_audio(audio)
-        assert len(chunks) == 1
+class TestTrimToWindow:
+    def test_short_audio_unchanged(self):
+        audio = np.zeros(TARGET_SR * 5, dtype=np.float32)  # 5s
+        result = _trim_to_window(audio, max_s=8.0)
+        assert len(result) == len(audio)
 
-    def test_exactly_30s_not_chunked(self):
-        audio = np.zeros(TARGET_SR * 30)
-        chunks = chunk_audio(audio)
-        assert len(chunks) == 1
+    def test_exactly_at_limit_unchanged(self):
+        audio = np.zeros(TARGET_SR * 8, dtype=np.float32)  # 8s
+        result = _trim_to_window(audio, max_s=8.0)
+        assert len(result) == TARGET_SR * 8
 
-    def test_long_audio_split(self):
-        audio = np.zeros(TARGET_SR * 65)  # 65 seconds
-        chunks = chunk_audio(audio)
-        assert len(chunks) >= 2
+    def test_long_audio_trimmed(self):
+        audio = np.zeros(TARGET_SR * 20, dtype=np.float32)  # 20s
+        result = _trim_to_window(audio, max_s=8.0)
+        assert len(result) <= TARGET_SR * 8
 
-    def test_chunks_under_30s(self):
-        audio = np.zeros(TARGET_SR * 65)
-        chunks = chunk_audio(audio)
-        for chunk in chunks:
-            assert len(chunk) <= TARGET_SR * 30
+    def test_result_never_exceeds_limit(self):
+        audio = np.zeros(TARGET_SR * 65, dtype=np.float32)
+        result = _trim_to_window(audio, max_s=30.0)
+        assert len(result) <= TARGET_SR * 30
 
-    def test_sub_1s_chunk_dropped(self):
-        # 30s + 0.5s → only first chunk kept
-        audio = np.zeros(TARGET_SR * 30 + TARGET_SR // 2)
-        chunks = chunk_audio(audio)
-        assert len(chunks) == 1
+    def test_custom_max_s_respected(self):
+        audio = np.zeros(TARGET_SR * 10, dtype=np.float32)
+        result = _trim_to_window(audio, max_s=3.0)
+        assert len(result) == TARGET_SR * 3
 
 
 # ---------------------------------------------------------------------------

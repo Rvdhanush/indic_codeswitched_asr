@@ -34,7 +34,7 @@ python fine_tuning/train.py
 ## Architecture
 
 ### Pipeline Flow
-1. **Data** (`data/prepare_dataset.py`) — Streams IndicVoices Tamil from HuggingFace, resamples to 16kHz, chunks to 30s max, tags each segment as `monolingual_tamil` / `monolingual_english` / `code_switched`, counts language switch points, stratified 80/10/10 split.
+1. **Data** (`data/prepare_dataset.py`) — Builds a mixed dataset via synthetic code-switching: loads Tamil segments from IndicVoices-R and English segments from LibriSpeech, concatenates Tamil+silence+English pairs to create code-switched samples, resamples to 16kHz, caps segments at 8s, tags each as `monolingual_tamil` / `monolingual_english` / `code_switched`, stratified 80/10/10 split.
 
 2. **Evaluation** (`evaluation/baseline_eval.py` + `evaluation/metrics.py`) — Loads all three baseline models, transcribes the test set, computes WER/CER stratified by segment type, and categorizes failures into 5 types: `SUBSTITUTION_SWITCH`, `DELETION_PROPER_NOUN`, `SUBSTITUTION_NUMBER`, `LANGUAGE_CONFUSION`, `INSERTION_FILLER`.
 
@@ -46,5 +46,7 @@ python fine_tuning/train.py
 - **LoRA on attention only** — Only `q_proj`/`v_proj` are adapted; encoder, decoder embeddings, and LM head are frozen, keeping trainable parameters small.
 - **Failure taxonomy** — The 5-category failure taxonomy in `metrics.py` directly motivates the oversampling strategy in `train.py`.
 
-### Empty Modules
-`analysis/`, `api/`, and `notebooks/` directories exist but are currently empty placeholders.
+### Additional Modules
+- **`analysis/report.py`** — Reads `results/baseline_wer_all.json`, computes derived metrics (CS penalty, dominant failure, shared failures), and writes `results/failure_analysis_report.md` + `results/failure_analysis_summary.json`. Run with `python analysis/report.py`.
+- **`api/app.py`** — FastAPI inference server with `/health`, `/transcribe`, `/analyze`, `/model/info` endpoints. Loads fine-tuned LoRA checkpoint if available, falls back to base Whisper-small. Run with `uvicorn api.app:app --host 0.0.0.0 --port 8000`.
+- **`notebooks/colab_finetune.ipynb`** — Colab-ready notebook for end-to-end fine-tuning on GPU.
