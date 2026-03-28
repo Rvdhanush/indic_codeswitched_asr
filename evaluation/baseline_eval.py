@@ -26,6 +26,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# CUDA debug check
+print(f"CUDA available: {torch.cuda.is_available()}")
+print(f"Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
+if not torch.cuda.is_available():
+    print("WARNING: Running on CPU — install the CUDA build of PyTorch for GPU acceleration.")
+    print("  pip install torch --index-url https://download.pytorch.org/whl/cu121")
+
 HF_TOKEN = os.getenv("HF_TOKEN")
 RESULTS_DIR = Path("results")
 RESULTS_DIR.mkdir(exist_ok=True)
@@ -34,21 +41,21 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 logger.info(f"Using device: {DEVICE}")
 
 MODELS = {
-    "whisper_medium": {
+    "whisper_small": {
         "type": "whisper",
-        "name": "openai/whisper-medium",
+        "name": "openai/whisper-small",
         "language": "ta",
         "task": "transcribe"
     },
-    "indic_whisper": {
+    "whisper_tamil": {
         "type": "whisper",
-        "name": "parthiv11/indic_whisper_nodcil",
+        "name": "vasista22/whisper-tamil-medium",
         "language": "ta",
         "task": "transcribe"
     },
-    "indicwav2vec": {
+    "wav2vec2_tamil": {
         "type": "wav2vec2",
-        "name": "ai4bharat/indicwav2vec",
+        "name": "Harveenchadha/vakyansh-wav2vec2-tamil-tam-250",
         "language": "ta",
         "task": "transcribe"
     }
@@ -67,6 +74,17 @@ def load_whisper_model(model_name: str):
         torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
     ).to(DEVICE)
     model.eval()
+    # Normalize generation config for compatibility with transformers ≥ 4.36.
+    # New-style models (e.g. openai/whisper-small) have lang_to_id in their
+    # generation_config and support the language= kwarg to generate().
+    # Old-style fine-tuned models (e.g. vasista22) lack lang_to_id and use
+    # forced_decoder_ids instead — Tamil is already baked in there, so we
+    # leave that config alone and call generate() without language/task kwargs.
+    if hasattr(model.generation_config, "lang_to_id"):
+        model.generation_config.forced_decoder_ids = None
+        model.generation_config.suppress_tokens = []
+        model.generation_config.language = "tamil"
+        model.generation_config.task = "transcribe"
     return processor, model
 
 
@@ -104,8 +122,6 @@ def transcribe_whisper(
     with torch.no_grad():
         predicted_ids = model.generate(
             inputs,
-            language=language,
-            task="transcribe",
             max_new_tokens=256
         )
 
@@ -235,12 +251,17 @@ def run_all_baselines(
         logger.info(f"Running: {model_key}")
         logger.info(f"{'='*50}")
 
-        result = evaluate_model(
-            model_key,
-            MODELS[model_key],
-            test_samples,
-            max_samples=max_samples
-        )
+        try:
+            result = evaluate_model(
+                model_key,
+                MODELS[model_key],
+                test_samples,
+                max_samples=max_samples
+            )
+        except Exception as e:
+            logger.error(f"Model {model_key} failed — skipping. Reason: {e}")
+            continue
+
         all_results[model_key] = result
 
         save_path = RESULTS_DIR / f"{model_key}_wer.json"

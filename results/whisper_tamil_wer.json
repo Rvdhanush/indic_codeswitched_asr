@@ -1,0 +1,18 @@
+{
+  "model_name": "vasista22/whisper-tamil-medium",
+  "model_key": "whisper_tamil",
+  "device": "cuda",
+  "total_samples": 50,
+  "errors": 0,
+  "overall_wer": 0.8294,
+  "monolingual_tamil_wer": 0.6882,
+  "monolingual_english_wer": 0.9802,
+  "code_switched_wer": 0.8785,
+  "failure_breakdown": {
+    "SUBSTITUTION_SWITCH": 23,
+    "DELETION_PROPER_NOUN": 0,
+    "SUBSTITUTION_NUMBER": 0,
+    "LANGUAGE_CONFUSION": 27,
+    "INSERTION_FILLER": 0
+  }
+}
