@@ -16,7 +16,7 @@ from transformers import (
     Seq2SeqTrainer,
     EarlyStoppingCallback
 )
-from peft import LoraConfig, get_peft_model, TaskType
+from peft import LoraConfig, get_peft_model
 import evaluate
 import wandb
 
@@ -58,7 +58,6 @@ def apply_lora(model, config: dict):
         target_modules=lora_cfg["target_modules"],
         lora_dropout=lora_cfg["lora_dropout"],
         bias=lora_cfg["bias"],
-        task_type=TaskType.SEQ_2_SEQ_LM
     )
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
@@ -78,15 +77,16 @@ def oversample_by_type(samples: list, config: dict) -> list:
         switch_count = sample.get("switch_count", 0)
 
         if seg_type == "code_switched":
-            # Duplicate code-switched samples 3x
-            oversampled.extend(
-                [sample] * data_cfg["oversample_code_switched"]
-            )
-        elif seg_type == "code_switched" and switch_count > 2:
-            # Extra weight for high-switch-count samples
-            oversampled.extend(
-                [sample] * data_cfg["oversample_switch_boundary"]
-            )
+            if switch_count > 2:
+                # Extra weight for high-switch-count samples
+                oversampled.extend(
+                    [sample] * data_cfg["oversample_switch_boundary"]
+                )
+            else:
+                # Duplicate code-switched samples 3x
+                oversampled.extend(
+                    [sample] * data_cfg["oversample_code_switched"]
+                )
         elif seg_type in ("monolingual_tamil", "monolingual_english"):
             # Undersample monolingual to 50%
             if np.random.random() < data_cfg["undersample_monolingual"]:
@@ -157,6 +157,23 @@ def prepare_dataset_for_training(samples: list, processor) -> list:
             logger.warning(f"Skipping sample: {e}")
             continue
     return processed
+
+class WhisperSeq2SeqTrainer(Seq2SeqTrainer):
+    """
+    Seq2SeqTrainer subclass for Whisper.
+
+    transformers ≥ 4.50 injects `input_ids` into the batch internally during
+    compute_loss (for per-sample loss normalisation). WhisperForConditionalGeneration
+    uses `input_features` for the encoder — not `input_ids` — so we own the
+    full forward pass here to prevent the TypeError.
+    """
+    def compute_loss(self, model, inputs, num_items_in_batch=None, **kwargs):
+        inputs = {k: v for k, v in inputs.items() if k != "input_ids"}
+        labels = inputs.pop("labels", None)
+        outputs = model(**inputs, labels=labels)
+        loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+        return loss
+
 
 def compute_metrics_fn(processor):
     """Returns a compute_metrics function for Seq2SeqTrainer."""
@@ -245,7 +262,7 @@ def train(config_path: str = "fine_tuning/config.yaml"):
         push_to_hub=False,
     )
 
-    trainer = Seq2SeqTrainer(
+    trainer = WhisperSeq2SeqTrainer(
         model=model,
         args=training_args,
         train_dataset=train_data,
