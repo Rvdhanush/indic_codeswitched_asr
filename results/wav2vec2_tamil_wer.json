@@ -1,0 +1,18 @@
+{
+  "model_name": "Harveenchadha/vakyansh-wav2vec2-tamil-tam-250",
+  "model_key": "wav2vec2_tamil",
+  "device": "cuda",
+  "total_samples": 50,
+  "errors": 0,
+  "overall_wer": 1.0134,
+  "monolingual_tamil_wer": 1.0313,
+  "monolingual_english_wer": 1.0,
+  "code_switched_wer": 0.9985,
+  "failure_breakdown": {
+    "SUBSTITUTION_SWITCH": 32,
+    "DELETION_PROPER_NOUN": 0,
+    "SUBSTITUTION_NUMBER": 0,
+    "LANGUAGE_CONFUSION": 18,
+    "INSERTION_FILLER": 0
+  }
+}

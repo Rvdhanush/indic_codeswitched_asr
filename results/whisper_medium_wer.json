@@ -1,0 +1,18 @@
+{
+  "model_name": "openai/whisper-medium",
+  "model_key": "whisper_medium",
+  "device": "cpu",
+  "total_samples": 20,
+  "errors": 0,
+  "overall_wer": 0.9612,
+  "monolingual_tamil_wer": 0.9178,
+  "monolingual_english_wer": 1.0397,
+  "code_switched_wer": 0.9637,
+  "failure_breakdown": {
+    "SUBSTITUTION_SWITCH": 9,
+    "DELETION_PROPER_NOUN": 0,
+    "SUBSTITUTION_NUMBER": 0,
+    "LANGUAGE_CONFUSION": 11,
+    "INSERTION_FILLER": 0
+  }
+}

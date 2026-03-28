@@ -1,0 +1,69 @@
+{
+  "whisper_small": {
+    "model_name": "openai/whisper-small",
+    "overall_wer": 0.9761,
+    "monolingual_tamil_wer": 0.9568,
+    "monolingual_english_wer": 1.0089,
+    "code_switched_wer": 0.9639,
+    "code_switch_penalty": 0.981,
+    "dominant_failure_category": "LANGUAGE_CONFUSION",
+    "dominant_failure_share_pct": 54.0,
+    "failure_breakdown": {
+      "SUBSTITUTION_SWITCH": 23,
+      "DELETION_PROPER_NOUN": 0,
+      "SUBSTITUTION_NUMBER": 0,
+      "LANGUAGE_CONFUSION": 27,
+      "INSERTION_FILLER": 0
+    }
+  },
+  "whisper_tamil": {
+    "model_name": "vasista22/whisper-tamil-medium",
+    "overall_wer": 0.8294,
+    "monolingual_tamil_wer": 0.6882,
+    "monolingual_english_wer": 0.9802,
+    "code_switched_wer": 0.8785,
+    "code_switch_penalty": 1.053,
+    "dominant_failure_category": "LANGUAGE_CONFUSION",
+    "dominant_failure_share_pct": 54.0,
+    "failure_breakdown": {
+      "SUBSTITUTION_SWITCH": 23,
+      "DELETION_PROPER_NOUN": 0,
+      "SUBSTITUTION_NUMBER": 0,
+      "LANGUAGE_CONFUSION": 27,
+      "INSERTION_FILLER": 0
+    }
+  },
+  "wav2vec2_tamil": {
+    "model_name": "Harveenchadha/vakyansh-wav2vec2-tamil-tam-250",
+    "overall_wer": 1.0134,
+    "monolingual_tamil_wer": 1.0313,
+    "monolingual_english_wer": 1.0,
+    "code_switched_wer": 0.9985,
+    "code_switch_penalty": 0.983,
+    "dominant_failure_category": "SUBSTITUTION_SWITCH",
+    "dominant_failure_share_pct": 64.0,
+    "failure_breakdown": {
+      "SUBSTITUTION_SWITCH": 32,
+      "DELETION_PROPER_NOUN": 0,
+      "SUBSTITUTION_NUMBER": 0,
+      "LANGUAGE_CONFUSION": 18,
+      "INSERTION_FILLER": 0
+    }
+  },
+  "_meta": {
+    "shared_systemic_failures": [
+      "LANGUAGE_CONFUSION",
+      "SUBSTITUTION_SWITCH"
+    ],
+    "cs_wer_ranking": [
+      "whisper_tamil",
+      "whisper_small",
+      "wav2vec2_tamil"
+    ],
+    "overall_wer_ranking": [
+      "whisper_tamil",
+      "whisper_small",
+      "wav2vec2_tamil"
+    ]
+  }
+}

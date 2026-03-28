@@ -1,0 +1,18 @@
+{
+  "model_name": "openai/whisper-small",
+  "model_key": "whisper_small",
+  "device": "cuda",
+  "total_samples": 50,
+  "errors": 0,
+  "overall_wer": 0.9761,
+  "monolingual_tamil_wer": 0.9568,
+  "monolingual_english_wer": 1.0089,
+  "code_switched_wer": 0.9639,
+  "failure_breakdown": {
+    "SUBSTITUTION_SWITCH": 23,
+    "DELETION_PROPER_NOUN": 0,
+    "SUBSTITUTION_NUMBER": 0,
+    "LANGUAGE_CONFUSION": 27,
+    "INSERTION_FILLER": 0
+  }
+}
