@@ -52,5 +52,23 @@
       "LANGUAGE_CONFUSION": 18,
       "INSERTION_FILLER": 0
     }
+  },
+  "whisper_small_lora": {
+    "model_name": "checkpoints/best_model",
+    "model_key": "whisper_small_lora",
+    "device": "cuda",
+    "total_samples": 150,
+    "errors": 0,
+    "overall_wer": 0.6823,
+    "monolingual_tamil_wer": 0.7692,
+    "monolingual_english_wer": 0.5663,
+    "code_switched_wer": 0.5635,
+    "failure_breakdown": {
+      "SUBSTITUTION_SWITCH": 87,
+      "DELETION_PROPER_NOUN": 0,
+      "SUBSTITUTION_NUMBER": 0,
+      "LANGUAGE_CONFUSION": 62,
+      "INSERTION_FILLER": 1
+    }
   }
 }
