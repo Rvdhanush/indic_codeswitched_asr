@@ -7,7 +7,7 @@ Strategy: synthetic code-switching
   - Code-switched      : Tamil segment + 0.1s silence + English segment
                          (concatenated audio, mixed transcript)
 
-Target distribution (200 samples default):
+Target distribution (500 samples default):
   80  code_switched
   70  monolingual_tamil
   50  monolingual_english
@@ -272,7 +272,7 @@ def _build_sample(
 # ---------------------------------------------------------------------------
 
 def load_indicvoices_tamil(
-    max_samples: int = 200,
+    max_samples: int = 500,
     streaming: bool = True,          # kept for API compatibility
 ) -> list:
     """
@@ -430,7 +430,7 @@ def preprocess_sample(sample: dict):
 if __name__ == "__main__":
     authenticate_hf()
 
-    samples = load_indicvoices_tamil()      # default: 200 samples
+    samples = load_indicvoices_tamil()      # default: 500 samples
     print_dataset_stats(samples)
 
     splits = build_dataset_splits(samples)
