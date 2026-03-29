@@ -73,5 +73,5 @@ reduce LANGUAGE_CONFUSION, which appears to be a decoding-level failure.
 **Next steps:**
 - Evaluate on a real Tanglish corpus (e.g. MUCS 2021 or IndicVoices-CS when publicly available)
 - Extend LoRA to cross-attention layers and compare CS penalty
-- Publish the fine-tuned LoRA adapter to HuggingFace Hub for reproducibility
+- ~~Publish the fine-tuned LoRA adapter to HuggingFace Hub~~ — done: [Dhanush66-rv/whisper-small-tanglish-lora](https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora)
 - Integrate with the FastAPI server (`api/app.py`) for live Tanglish transcription demo
