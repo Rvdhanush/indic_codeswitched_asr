@@ -58,42 +58,56 @@ _processor: Optional[WhisperProcessor] = None
 _model: Optional[WhisperForConditionalGeneration] = None
 _model_source: str = "not loaded"
 
+_baseline_processor: Optional[WhisperProcessor] = None
+_baseline_model: Optional[WhisperForConditionalGeneration] = None
+
+
+def _fix_generation_config(model):
+    """Move suppress_tokens from model.config to generation_config (transformers compat fix)."""
+    if hasattr(model.config, "suppress_tokens") and model.config.suppress_tokens is not None:
+        model.generation_config.suppress_tokens = model.config.suppress_tokens
+        model.config.suppress_tokens = None
+    model.config.forced_decoder_ids = None
+    return model
+
 
 def _load_model():
     global _processor, _model, _model_source
+    global _baseline_processor, _baseline_model
 
+    # Fine-tuned model
     if MODEL_PATH.exists():
         logger.info(f"Loading fine-tuned model from {MODEL_PATH}")
-        _processor = WhisperProcessor.from_pretrained(
-            str(MODEL_PATH), token=HF_TOKEN
-        )
+        _processor = WhisperProcessor.from_pretrained(str(MODEL_PATH), token=HF_TOKEN)
         base = WhisperForConditionalGeneration.from_pretrained(
-            BASE_MODEL,
-            token=HF_TOKEN,
+            BASE_MODEL, token=HF_TOKEN,
             torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
         )
         _model = PeftModel.from_pretrained(base, str(MODEL_PATH))
         _model_source = f"fine-tuned LoRA ({MODEL_PATH})"
     else:
-        logger.warning(
-            f"Fine-tuned checkpoint not found at {MODEL_PATH}. "
-            f"Falling back to base model: {BASE_MODEL}"
-        )
-        _processor = WhisperProcessor.from_pretrained(
-            BASE_MODEL, token=HF_TOKEN
-        )
+        logger.warning(f"Fine-tuned checkpoint not found at {MODEL_PATH}. Falling back to {BASE_MODEL}")
+        _processor = WhisperProcessor.from_pretrained(BASE_MODEL, token=HF_TOKEN)
         _model = WhisperForConditionalGeneration.from_pretrained(
-            BASE_MODEL,
-            token=HF_TOKEN,
+            BASE_MODEL, token=HF_TOKEN,
             torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
         )
         _model_source = f"base model fallback ({BASE_MODEL})"
 
-    _model.config.forced_decoder_ids = None
-    _model.config.suppress_tokens = []
-    _model = _model.to(DEVICE)
+    _model = _fix_generation_config(_model).to(DEVICE)
     _model.eval()
-    logger.info(f"Model ready on {DEVICE}: {_model_source}")
+
+    # Baseline model (for /compare)
+    logger.info(f"Loading baseline model: {BASE_MODEL}")
+    _baseline_processor = WhisperProcessor.from_pretrained(BASE_MODEL, token=HF_TOKEN)
+    _baseline_model = WhisperForConditionalGeneration.from_pretrained(
+        BASE_MODEL, token=HF_TOKEN,
+        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+    )
+    _baseline_model = _fix_generation_config(_baseline_model).to(DEVICE)
+    _baseline_model.eval()
+
+    logger.info(f"Models ready on {DEVICE}: {_model_source}")
 
 
 # ---------------------------------------------------------------------------
@@ -118,8 +132,8 @@ def _load_audio(data: bytes, filename: str) -> np.ndarray:
     return audio.astype(np.float32)
 
 
-def _transcribe(audio: np.ndarray) -> str:
-    inputs = _processor(
+def _transcribe_with(audio: np.ndarray, processor, model) -> str:
+    inputs = processor(
         audio, sampling_rate=SAMPLE_RATE, return_tensors="pt"
     ).input_features.to(DEVICE)
 
@@ -127,16 +141,20 @@ def _transcribe(audio: np.ndarray) -> str:
         inputs = inputs.half()
 
     with torch.no_grad():
-        predicted_ids = _model.generate(
+        predicted_ids = model.generate(
             inputs,
             language="ta",
             task="transcribe",
             max_new_tokens=256,
         )
 
-    return _processor.batch_decode(
+    return processor.batch_decode(
         predicted_ids, skip_special_tokens=True
     )[0].strip()
+
+
+def _transcribe(audio: np.ndarray) -> str:
+    return _transcribe_with(audio, _processor, _model)
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +187,15 @@ class ModelInfoResponse(BaseModel):
     base_model: str
     device: str
     model_path: str
+
+
+class CompareResponse(BaseModel):
+    baseline_transcript: str
+    finetuned_transcript: str
+    segment_type: str
+    baseline_model: str
+    finetuned_model: str
+    device: str
 
 
 # ---------------------------------------------------------------------------
@@ -270,5 +297,39 @@ async def analyze(
         reference_word_count=metrics["reference_word_count"],
         hypothesis_word_count=metrics["hypothesis_word_count"],
         model_source=_model_source,
+        device=DEVICE,
+    )
+
+
+@app.post("/compare", response_model=CompareResponse)
+async def compare(audio: UploadFile = File(...)):
+    """
+    Transcribe the same audio with both baseline Whisper-small and the fine-tuned LoRA model.
+
+    Upload any Tamil-English (Tanglish) audio to see the side-by-side difference.
+    Accepts: WAV, MP3, FLAC, OGG
+    """
+    if _model is None or _baseline_model is None:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty audio file")
+
+    try:
+        waveform = _load_audio(raw, audio.filename or "audio.wav")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not decode audio: {e}")
+
+    baseline_transcript = _transcribe_with(waveform, _baseline_processor, _baseline_model)
+    finetuned_transcript = _transcribe(waveform)
+    segment_type = tag_segment_type(finetuned_transcript)
+
+    return CompareResponse(
+        baseline_transcript=baseline_transcript,
+        finetuned_transcript=finetuned_transcript,
+        segment_type=segment_type,
+        baseline_model=BASE_MODEL,
+        finetuned_model=_model_source,
         device=DEVICE,
     )
