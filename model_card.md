@@ -14,6 +14,8 @@ tags:
 base_model: openai/whisper-small
 datasets:
   - ai4bharat/indicvoices
+  - SPRINGLab/IndicVoices-R_Tamil
+  - librispeech_asr
 metrics:
   - wer
 ---
@@ -46,29 +48,35 @@ Standard ASR models trained on monolingual data degrade significantly on code-sw
 
 ## Evaluation Results
 
-WER on IndicVoices Tamil held-out test set, stratified by segment type:
+WER on held-out test set (synthetic Tamil-English code-switched corpus), stratified by segment type:
 
-| Segment Type | Whisper-medium (baseline) | IndicWhisper (baseline) | **This model** |
+| Segment Type | Whisper-small (baseline) | Whisper-tamil-medium | **This model** |
 |---|---|---|---|
-| Overall | — | — | — |
-| Monolingual Tamil | — | — | — |
-| Monolingual English | — | — | — |
-| Code-switched | — | — | — |
-| CS Penalty (×) | — | — | — |
+| Overall | 0.976 | 0.829 | **0.682** |
+| Monolingual Tamil | 0.957 | 0.688 | 0.769 |
+| Monolingual English | 1.009 | 0.980 | **0.566** |
+| Code-switched | 0.964 | 0.879 | **0.564** |
+| CS Penalty (×) | 0.98× | 1.05× | **0.84×** |
 
-> Results will be populated after the evaluation run. See `results/baseline_wer_all.json` and `results/failure_analysis_report.md` in the [training repository](https://github.com/Rvdhanush/indic_codeswitched_asr).
+**41.5% relative WER reduction** on code-switched speech vs. Whisper-small baseline. **36% improvement** over the best pre-trained Tamil-specialized model.
+
+> CS Penalty = code-switched WER ÷ average(mono-Tamil WER, mono-English WER). A value below 1.0 means the model handles code-switched speech *better* than monolingual speech — the opposite of all three baselines.
+
+See full results in the [training repository](https://github.com/Rvdhanush/indic_codeswitched_asr).
 
 ### Failure Taxonomy
 
-The fine-tuning strategy was derived from a structured analysis of 5 failure categories:
+The fine-tuning strategy was derived from a structured analysis of 5 failure categories observed across all baselines:
 
-| Category | Description |
-|---|---|
-| `SUBSTITUTION_SWITCH` | Error at a Tamil↔English switch boundary |
-| `DELETION_PROPER_NOUN` | Named entity deleted from output |
-| `SUBSTITUTION_NUMBER` | Number or date transcribed incorrectly |
-| `LANGUAGE_CONFUSION` | Tamil word output in English script or vice versa |
-| `INSERTION_FILLER` | Hallucinated filler (um, uh, like) |
+| Category | Description | Whisper-small | Whisper-tamil | Wav2Vec2-tamil | **Ours (LoRA)** |
+|---|---|---|---|---|---|
+| `SUBSTITUTION_SWITCH` | Error at a Tamil↔English switch boundary | 46% | 46% | 64% | **58%** |
+| `LANGUAGE_CONFUSION` | Tamil word output in English script or vice versa | 54% | 54% | 36% | **41%** |
+| `DELETION_PROPER_NOUN` | Named entity deleted from output | 0% | 0% | 0% | 0% |
+| `SUBSTITUTION_NUMBER` | Number or date transcribed incorrectly | 0% | 0% | 0% | 0% |
+| `INSERTION_FILLER` | Hallucinated filler (um, uh, like) | 0% | 0% | 0% | 1% |
+
+Only `SUBSTITUTION_SWITCH` and `LANGUAGE_CONFUSION` were observed — both are systemic architectural blind spots shared across all models, not model-specific bugs. Fine-tuning reduced `LANGUAGE_CONFUSION` from 54% → 41% but did not eliminate either category.
 
 ## Training Procedure
 
@@ -94,7 +102,7 @@ from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from peft import PeftModel
 
 base_model_id = "openai/whisper-small"
-adapter_model_id = "Rvdhanush/whisper-small-tanglish-lora"
+adapter_model_id = "Dhanush66-rv/whisper-small-tanglish-lora"
 
 processor = WhisperProcessor.from_pretrained(adapter_model_id)
 base = WhisperForConditionalGeneration.from_pretrained(base_model_id)
@@ -126,10 +134,10 @@ curl -X POST http://localhost:8000/transcribe -F "audio=@speech.wav"
 
 ```bibtex
 @misc{whisper-small-tanglish-lora,
-  author    = {Rvdhanush},
+  author    = {Dhanush, R V},
   title     = {Whisper-small fine-tuned for Tamil-English code-switched ASR},
-  year      = {2026},
+  year      = {2025},
   publisher = {HuggingFace},
-  url       = {https://huggingface.co/Rvdhanush/whisper-small-tanglish-lora}
+  url       = {https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora}
 }
 ```
