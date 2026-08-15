@@ -1,0 +1,3 @@
+# Core runtime: import any first-party module, run inference and evaluation.
+# Versions are single-sourced from pyproject.toml.
+-e .

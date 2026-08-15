@@ -68,8 +68,18 @@ def oversample_by_type(samples: list, config: dict) -> list:
     Oversample code_switched and switch_boundary samples.
     Undersample monolingual samples.
     This is the TARGETED part of targeted fine-tuning.
+
+    High-switch-count samples get the code-switched multiplier *times* the
+    switch-boundary multiplier. Previously the two were mutually exclusive
+    branches, so a high-switch sample received 2x while an ordinary
+    code-switched sample received 3x — i.e. the samples the strategy was
+    meant to prioritise were weighted the least.
+
+    The RNG is seeded from config["seed"] so the composition of the training
+    set is reproducible across runs.
     """
     data_cfg = config["data"]
+    rng = np.random.default_rng(config.get("seed", 42))
     oversampled = []
 
     for sample in samples:
@@ -77,19 +87,14 @@ def oversample_by_type(samples: list, config: dict) -> list:
         switch_count = sample.get("switch_count", 0)
 
         if seg_type == "code_switched":
+            reps = data_cfg["oversample_code_switched"]
             if switch_count > 2:
-                # Extra weight for high-switch-count samples
-                oversampled.extend(
-                    [sample] * data_cfg["oversample_switch_boundary"]
-                )
-            else:
-                # Duplicate code-switched samples 3x
-                oversampled.extend(
-                    [sample] * data_cfg["oversample_code_switched"]
-                )
+                # Extra weight on top of the base code-switched multiplier
+                reps *= data_cfg["oversample_switch_boundary"]
+            oversampled.extend([sample] * reps)
         elif seg_type in ("monolingual_tamil", "monolingual_english"):
             # Undersample monolingual to 50%
-            if np.random.random() < data_cfg["undersample_monolingual"]:
+            if rng.random() < data_cfg["undersample_monolingual"]:
                 oversampled.append(sample)
         else:
             oversampled.append(sample)
@@ -198,6 +203,43 @@ def compute_metrics_fn(processor):
 
     return compute_metrics
 
+def build_training_args(
+    config: dict, device: str = DEVICE
+) -> Seq2SeqTrainingArguments:
+    """
+    Build Seq2SeqTrainingArguments from config.
+
+    Extracted so the Colab notebook can import it instead of maintaining a
+    second copy — the duplicated block had already drifted out of sync.
+    """
+    training_cfg = config["training"]
+    seed = config.get("seed", 42)
+    return Seq2SeqTrainingArguments(
+        output_dir=training_cfg["output_dir"],
+        num_train_epochs=training_cfg["num_train_epochs"],
+        per_device_train_batch_size=training_cfg["per_device_train_batch_size"],
+        gradient_accumulation_steps=training_cfg["gradient_accumulation_steps"],
+        learning_rate=training_cfg["learning_rate"],
+        warmup_steps=training_cfg["warmup_steps"],
+        eval_strategy=training_cfg["evaluation_strategy"],
+        eval_steps=training_cfg["eval_steps"],
+        save_steps=training_cfg["save_steps"],
+        logging_steps=training_cfg["logging_steps"],
+        fp16=training_cfg["fp16"] and device == "cuda",
+        dataloader_num_workers=training_cfg["dataloader_num_workers"],
+        load_best_model_at_end=training_cfg["load_best_model_at_end"],
+        metric_for_best_model=training_cfg["metric_for_best_model"],
+        greater_is_better=training_cfg["greater_is_better"],
+        optim=training_cfg["optim"],
+        seed=seed,
+        data_seed=seed,
+        predict_with_generate=True,
+        generation_max_length=256,
+        report_to="wandb" if WANDB_KEY else "none",
+        push_to_hub=False,
+    )
+
+
 def train(config_path: str = "fine_tuning/config.yaml"):
     """Main training function."""
     if os.name == 'nt':  # Windows: W&B service startup fails
@@ -217,8 +259,6 @@ def train(config_path: str = "fine_tuning/config.yaml"):
     model = apply_lora(model, config)
 
     logger.info("Loading dataset splits...")
-    import sys
-    sys.path.insert(0, ".")
     from data.prepare_dataset import (
         authenticate_hf,
         load_indicvoices_tamil,
@@ -226,7 +266,9 @@ def train(config_path: str = "fine_tuning/config.yaml"):
     )
 
     authenticate_hf()
-    samples = load_indicvoices_tamil(max_samples=1500)
+    samples = load_indicvoices_tamil(
+        max_samples=config["data"].get("max_samples", 1500)
+    )
     splits = build_dataset_splits(samples)
 
     train_samples = oversample_by_type(splits["train"], config)
@@ -242,28 +284,7 @@ def train(config_path: str = "fine_tuning/config.yaml"):
     )
 
     training_cfg = config["training"]
-    training_args = Seq2SeqTrainingArguments(
-        output_dir=training_cfg["output_dir"],
-        num_train_epochs=training_cfg["num_train_epochs"],
-        per_device_train_batch_size=training_cfg["per_device_train_batch_size"],
-        gradient_accumulation_steps=training_cfg["gradient_accumulation_steps"],
-        learning_rate=training_cfg["learning_rate"],
-        warmup_steps=training_cfg["warmup_steps"],
-        eval_strategy=training_cfg["evaluation_strategy"],
-        eval_steps=training_cfg["eval_steps"],
-        save_steps=training_cfg["save_steps"],
-        logging_steps=training_cfg["logging_steps"],
-        fp16=training_cfg["fp16"] and DEVICE == "cuda",
-        dataloader_num_workers=training_cfg["dataloader_num_workers"],
-        load_best_model_at_end=training_cfg["load_best_model_at_end"],
-        metric_for_best_model=training_cfg["metric_for_best_model"],
-        greater_is_better=training_cfg["greater_is_better"],
-        optim=training_cfg["optim"],
-        predict_with_generate=True,
-        generation_max_length=256,
-        report_to="wandb" if WANDB_KEY else "none",
-        push_to_hub=False,
-    )
+    training_args = build_training_args(config)
 
     trainer = WhisperSeq2SeqTrainer(
         model=model,

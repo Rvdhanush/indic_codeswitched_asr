@@ -1,0 +1,3 @@
+# Fine-tuning on a CUDA host (local RTX 3050 or Colab).
+# Installs the default CUDA torch wheel — do not add the CPU index here.
+-e .[train]

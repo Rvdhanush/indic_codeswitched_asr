@@ -2,39 +2,44 @@
 
 Generated from `results/baseline_wer_all.json`.
 
+> ⚠️ **The comparisons in this report are not currently valid.** The models in `baseline_wer_all.json` were not all evaluated on the same test set, WER is averaged per utterance rather than corpus-level, and three of the five failure categories are unreachable (`LANGUAGE_CONFUSION` is the classifier's fallback branch, so it means "uncategorized"). See README → Known Limitations. This banner will be removed once results carry a shared `corpus_id` and corpus-level metrics.
+
 ## 1. WER by Segment Type
 
-| Model          | Overall WER | Mono-Tamil WER | Mono-English WER | Code-Switched WER | CS Penalty |
-| -------------- | ----------- | -------------- | ---------------- | ----------------- | ---------- |
-| whisper_small  | 0.9761      | 0.9568         | 1.0089           | 0.9639            | 0.98×      |
-| whisper_tamil  | 0.8294      | 0.6882         | 0.9802           | 0.8785            | 1.05×      |
-| wav2vec2_tamil | 1.0134      | 1.0313         | 1.0000           | 0.9985            | 0.98×      |
+| Model              | Overall WER | Mono-Tamil WER | Mono-English WER | Code-Switched WER | CS Penalty |
+| ------------------ | ----------- | -------------- | ---------------- | ----------------- | ---------- |
+| whisper_small      | 0.9761      | 0.9568         | 1.0089           | 0.9639            | 0.98×      |
+| whisper_tamil      | 0.8294      | 0.6882         | 0.9802           | 0.8785            | 1.05×      |
+| wav2vec2_tamil     | 1.0134      | 1.0313         | 1.0000           | 0.9985            | 0.98×      |
+| whisper_small_lora | 0.6823      | 0.7692         | 0.5663           | 0.5635            | 0.84×      |
 
 > **CS Penalty** = code-switched WER ÷ average monolingual WER. A value of 2.0× means the model makes twice as many errors on code-switched speech as on clean monolingual speech.
 
 ## 2. Model Ranking on Code-Switched Speech
 
-| Rank | Model          | Code-Switched WER |
-| ---- | -------------- | ----------------- |
-| 1    | whisper_tamil  | 0.8785            |
-| 2    | whisper_small  | 0.9639            |
-| 3    | wav2vec2_tamil | 0.9985            |
+| Rank | Model              | Code-Switched WER |
+| ---- | ------------------ | ----------------- |
+| 1    | whisper_small_lora | 0.5635            |
+| 2    | whisper_tamil      | 0.8785            |
+| 3    | whisper_small      | 0.9639            |
+| 4    | wav2vec2_tamil     | 0.9985            |
 
 ## 3. Failure Category Breakdown
 
-| Failure Category       | Description                           | whisper_small | whisper_tamil | wav2vec2_tamil |
-| ---------------------- | ------------------------------------- | ------------- | ------------- | -------------- |
-| `SUBSTITUTION_SWITCH`  | Error at language switch boundary     | 23 (46%)      | 23 (46%)      | 32 (64%)       |
-| `DELETION_PROPER_NOUN` | Proper noun deleted                   | 0 (0%)        | 0 (0%)        | 0 (0%)         |
-| `SUBSTITUTION_NUMBER`  | Number / date transcribed incorrectly | 0 (0%)        | 0 (0%)        | 0 (0%)         |
-| `LANGUAGE_CONFUSION`   | Wrong language script used            | 27 (54%)      | 27 (54%)      | 18 (36%)       |
-| `INSERTION_FILLER`     | Hallucinated filler word              | 0 (0%)        | 0 (0%)        | 0 (0%)         |
+| Failure Category       | Description                           | whisper_small | whisper_tamil | wav2vec2_tamil | whisper_small_lora |
+| ---------------------- | ------------------------------------- | ------------- | ------------- | -------------- | ------------------ |
+| `SUBSTITUTION_SWITCH`  | Error at language switch boundary     | 23 (46%)      | 23 (46%)      | 32 (64%)       | 87 (58%)           |
+| `DELETION_PROPER_NOUN` | Proper noun deleted                   | 0 (0%)        | 0 (0%)        | 0 (0%)         | 0 (0%)             |
+| `SUBSTITUTION_NUMBER`  | Number / date transcribed incorrectly | 0 (0%)        | 0 (0%)        | 0 (0%)         | 0 (0%)             |
+| `LANGUAGE_CONFUSION`   | Wrong language script used            | 27 (54%)      | 27 (54%)      | 18 (36%)       | 62 (41%)           |
+| `INSERTION_FILLER`     | Hallucinated filler word              | 0 (0%)        | 0 (0%)        | 0 (0%)         | 1 (1%)             |
 
 **Dominant failure per model:**
 
 - **whisper_small:** `LANGUAGE_CONFUSION` — Wrong language script used (54.0% of all failures)
 - **whisper_tamil:** `LANGUAGE_CONFUSION` — Wrong language script used (54.0% of all failures)
 - **wav2vec2_tamil:** `SUBSTITUTION_SWITCH` — Error at language switch boundary (64.0% of all failures)
+- **whisper_small_lora:** `SUBSTITUTION_SWITCH` — Error at language switch boundary (58.0% of all failures)
 
 **Systemic failures (top-2 for all models):**
 
@@ -57,8 +62,9 @@ The failure breakdown directly informs the data sampling strategy in `fine_tunin
 
 ## 5. Evaluation Coverage
 
-| Model          | Samples evaluated | Errors | Device |
-| -------------- | ----------------- | ------ | ------ |
-| whisper_small  | 50                | 0      | cuda   |
-| whisper_tamil  | 50                | 0      | cuda   |
-| wav2vec2_tamil | 50                | 0      | cuda   |
+| Model              | Samples evaluated | Errors | Device |
+| ------------------ | ----------------- | ------ | ------ |
+| whisper_small      | 50                | 0      | cuda   |
+| whisper_tamil      | 50                | 0      | cuda   |
+| wav2vec2_tamil     | 50                | 0      | cuda   |
+| whisper_small_lora | 150               | 0      | cuda   |

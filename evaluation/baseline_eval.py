@@ -180,7 +180,7 @@ def evaluate_model(
         raise ValueError(f"Unknown model type: {model_type}")
 
     samples = test_samples
-    if max_samples:
+    if max_samples is not None:
         samples = test_samples[:max_samples]
 
     per_sample_results = []
@@ -228,6 +228,17 @@ def evaluate_model(
     return result
 
 
+def _atomic_write_json(path: Path, payload: dict):
+    """
+    Write JSON via a temp file + os.replace so an interrupted or failing run
+    can never leave a truncated (or empty) results file behind.
+    """
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
 def run_all_baselines(
     test_samples: list,
     max_samples: Optional[int] = 100,
@@ -236,17 +247,24 @@ def run_all_baselines(
     """
     Run all baseline models and save results.
     Set max_samples=None to run on full test set.
+
+    Raises ValueError on an unknown model key rather than skipping it — a typo
+    here previously produced an empty result set that then overwrote the
+    committed baseline_wer_all.json.
     """
     if models_to_run is None:
         models_to_run = list(MODELS.keys())
 
+    unknown = [k for k in models_to_run if k not in MODELS]
+    if unknown:
+        raise ValueError(
+            f"Unknown model key(s): {unknown}. "
+            f"Known models: {sorted(MODELS)}"
+        )
+
     all_results = {}
 
     for model_key in models_to_run:
-        if model_key not in MODELS:
-            logger.warning(f"Unknown model: {model_key}, skipping.")
-            continue
-
         logger.info(f"\n{'='*50}")
         logger.info(f"Running: {model_key}")
         logger.info(f"{'='*50}")
@@ -265,13 +283,30 @@ def run_all_baselines(
         all_results[model_key] = result
 
         save_path = RESULTS_DIR / f"{model_key}_wer.json"
-        with open(save_path, "w") as f:
-            json.dump(result, f, indent=2)
+        _atomic_write_json(save_path, result)
         logger.info(f"Saved results to {save_path}")
 
+    # Never overwrite the combined file with an empty or partial result set —
+    # a failed run must leave the previously committed results intact.
     combined_path = RESULTS_DIR / "baseline_wer_all.json"
-    with open(combined_path, "w") as f:
-        json.dump(all_results, f, indent=2)
+    if not all_results:
+        logger.error(
+            "No model produced results; leaving %s untouched.", combined_path
+        )
+        return all_results
+
+    if len(all_results) < len(models_to_run):
+        failed = [k for k in models_to_run if k not in all_results]
+        logger.error(
+            "Only %d/%d models succeeded (failed: %s); leaving %s untouched. "
+            "Re-run once the failures are fixed, or pass models_to_run "
+            "explicitly to write a partial comparison on purpose.",
+            len(all_results), len(models_to_run), failed, combined_path,
+        )
+        print_comparison_table(all_results)
+        return all_results
+
+    _atomic_write_json(combined_path, all_results)
     logger.info(f"\nAll results saved to {combined_path}")
 
     print_comparison_table(all_results)
@@ -297,7 +332,45 @@ def print_comparison_table(results: dict):
     print("="*80 + "\n")
 
 
-if __name__ == "__main__":
+def main(argv: Optional[list] = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python -m evaluation.baseline_eval",
+        description="Evaluate baseline ASR models on the Tanglish test split.",
+    )
+    parser.add_argument(
+        "--models", nargs="+", default=None, metavar="KEY",
+        help=f"Model keys to run (default: all). Choices: {sorted(MODELS)}",
+    )
+    parser.add_argument(
+        "--dataset-samples", type=int, default=300,
+        help="Total samples to build before splitting (default: 300).",
+    )
+    parser.add_argument(
+        "--max-samples", type=int, default=None,
+        help="Cap evaluated test samples (default: no cap).",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="List the models that would run, then exit without writing.",
+    )
+    args = parser.parse_args(argv)
+
+    models_to_run = args.models or list(MODELS.keys())
+    unknown = [k for k in models_to_run if k not in MODELS]
+    if unknown:
+        parser.error(
+            f"unknown model key(s): {unknown}. Known models: {sorted(MODELS)}"
+        )
+
+    if args.dry_run:
+        print(f"Would evaluate {len(models_to_run)} model(s):")
+        for key in models_to_run:
+            print(f"  {key:<16} {MODELS[key]['name']}")
+        print("Dry run — no files written.")
+        return 0
+
     from data.prepare_dataset import (
         authenticate_hf,
         load_indicvoices_tamil,
@@ -305,14 +378,19 @@ if __name__ == "__main__":
     )
 
     authenticate_hf()
-    samples = load_indicvoices_tamil(max_samples=300)
+    samples = load_indicvoices_tamil(max_samples=args.dataset_samples)
     splits = build_dataset_splits(samples)
     test_samples = splits["test"]
 
     logger.info(f"Test set size: {len(test_samples)} samples")
 
-    run_all_baselines(
+    results = run_all_baselines(
         test_samples,
-        max_samples=50,
-        models_to_run=["whisper_medium"]
+        max_samples=args.max_samples,
+        models_to_run=models_to_run,
     )
+    return 0 if len(results) == len(models_to_run) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,3 +1,7 @@
+# Seeds the oversampling RNG and the HF Trainer, so a rerun with the same
+# config reproduces the same training-set composition and shuffle order.
+seed: 42
+
 model:
   base_model: "openai/whisper-small"
   language: "tamil"
@@ -33,6 +37,7 @@ training:
 data:
   train_split: "train"
   val_split: "validation"
+  max_samples: 1500
   max_audio_length_seconds: 30
   oversample_code_switched: 3
   oversample_switch_boundary: 2

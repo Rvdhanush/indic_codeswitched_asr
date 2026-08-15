@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "indic-codeswitched-asr"
+version = "0.1.0"
+description = "Comparative evaluation and LoRA fine-tuning for Tamil-English code-switched ASR"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# Core runtime — enough to import every first-party module and run inference
+# and evaluation. Training- and serving-only packages live in the extras below
+# so a CPU-only deploy does not drag in bitsandbytes/wandb/CUDA wheels.
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.40.0",
+    "peft>=0.10.0",
+    "jiwer>=3.0.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "numpy>=1.24.0",
+    "langdetect>=1.0.9",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "huggingface_hub>=0.22.0",
+    "scikit-learn>=1.4.0",
+]
+
+[project.optional-dependencies]
+# API server. python-multipart is REQUIRED — FastAPI raises at route-definition
+# time for File()/Form() without it, so every upload endpoint is dead without it.
+serve = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "python-multipart>=0.0.9",
+]
+
+train = [
+    "datasets>=2.19.0,<3.0.0",
+    "accelerate>=0.29.0",
+    "evaluate>=0.4.0",
+    "wandb>=0.16.0",
+    "bitsandbytes>=0.43.0",
+    "torchaudio>=2.0.0",
+    "pandas>=2.0.0",
+    "tqdm>=4.66.0",
+]
+
+# `datasets` is here because evaluation/baseline_eval.py imports it at module
+# level; without it any test touching that module fails on CI at import.
+dev = [
+    "indic-codeswitched-asr[serve]",
+    "datasets>=2.19.0,<3.0.0",
+    "evaluate>=0.4.0",
+    "tqdm>=4.66.0",
+    "httpx>=0.27.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.setuptools]
+packages = ["data", "evaluation", "fine_tuning", "analysis", "api"]

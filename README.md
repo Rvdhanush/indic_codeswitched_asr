@@ -1,7 +1,13 @@
 # Tamil-English Code-Switched ASR: Failure Analysis & Targeted Fine-tuning
 
-> Structured failure taxonomy for Tanglish ASR + LoRA fine-tuning that achieves
-> **41% WER reduction on code-switched speech** using only 1.44% of model parameters.
+> A failure taxonomy for Tanglish ASR, a synthetic code-switched training pipeline, and a
+> 14 MB LoRA adapter for Whisper-small that trains 1.44% of parameters.
+
+> ⚠️ **The headline WER comparison in earlier versions of this README was not valid.**
+> Baselines and the fine-tuned model were scored on **different test sets**, so the previously
+> claimed "41% WER reduction" is not supported by the data that produced it. The numbers below
+> are reproduced as-measured, with the caveats stated. A frozen shared test set and corrected
+> metrics are in progress — see [Known Limitations](#known-limitations).
 
 ---
 
@@ -20,21 +26,25 @@ code-switched speech, and can targeted fine-tuning fix those specific failure ca
 
 ## Key Findings
 
-**1. All baseline models collapse on code-switched input.**
-Whisper-small hallucinated repetition loops ("பிரிந்து" × 25) when encountering English
-words mid-sentence. Wav2Vec2-tamil achieved WER > 1.0 on code-switched segments. The
-best pre-trained baseline (Whisper-tamil-medium) still reached only 0.879 CS-WER.
+**1. Whisper-small exhibits repetition collapse on out-of-distribution mixed-language input.**
+It hallucinated "பிரிந்து" × 25 when encountering English words mid-sentence. This is a real,
+reproducible failure mode and the single clearest qualitative result here. The *absolute* WER
+figures around it are inflated by the script-mismatch problem below and should not be read as
+"the model cannot hear Tamil."
 
-**2. Targeted oversampling with LoRA outperforms all baselines using 1.44% of parameters.**
-Fine-tuning only `q_proj` and `v_proj` attention layers with a weighted sampler (code-switched
-×3, high-switch-point ×2, monolingual ×0.5) reduced code-switched WER from 0.964 to 0.564
-— a 41% relative improvement — while beating Whisper-tamil-medium (a larger, Tamil-specialized
-model) by 36%.
+**2. Targeted oversampling with LoRA reduced measured code-switched WER (0.964 → 0.564).**
+Fine-tuning only `q_proj` and `v_proj` with a weighted sampler (code-switched ×3,
+high-switch-point ×6, monolingual ×0.5). **This is not a like-for-like comparison** — the two
+numbers come from different test sets. Also note the training data's "code-switching" is a
+Tamil clip concatenated to an English clip from a *different corpus*, so part of the gain may
+be the model learning the channel change rather than code-switching. Treat as provisional.
 
-**3. LANGUAGE_CONFUSION and SUBSTITUTION_SWITCH are architectural, not model-specific.**
-Both failure categories appear as the top-2 failures across all three baseline models.
-They represent blind spots in how seq2seq ASR decoders handle language switches, not
-bugs in any individual model. Fine-tuning reduced but did not eliminate them.
+**3. The dominant reported failure category is an artifact of how it was measured.**
+`LANGUAGE_CONFUSION` is the fallback branch of `categorize_failure()` — it is what gets
+returned when no other rule matches, so "54% LANGUAGE_CONFUSION" means "54% uncategorized".
+`DELETION_PROPER_NOUN` and `SUBSTITUTION_NUMBER` read 0% across every model because they can
+never fire (the reference is lowercased before a `isupper()` check; neither corpus emits digits).
+The taxonomy is effectively two live categories, not five.
 
 ---
 
@@ -49,9 +59,16 @@ bugs in any individual model. Fine-tuning reduced but did not eliminate them.
 | Wav2Vec2-tamil | 1.013 | 1.031 | 1.000 | 0.999 | 0.98× |
 | **Whisper-small + LoRA (ours)** | **0.682** | **0.769** | **0.566** | **0.564** | **0.84×** |
 
-> **CS Penalty** = code-switched WER ÷ average monolingual WER. Our fine-tuned model
-> scores 0.84× — meaning it handles code-switched speech *better* than monolingual speech,
-> the opposite of every baseline.
+> ⚠️ **Rows are not directly comparable.** The three baselines were scored on 50 samples from a
+> 300-sample dataset build; the LoRA row on 150 samples from a 1500-sample build. Different
+> builds produce different test sets, so the last row and the first three describe different data.
+>
+> **CS Penalty** = code-switched WER ÷ average monolingual WER. The 0.84× figure was previously
+> presented as evidence that the fine-tuned model handles code-switched speech *better* than
+> monolingual. That reading is probably wrong: WER here is averaged per-utterance rather than
+> computed corpus-level, and code-switched samples are roughly twice as long and contain the
+> easier English half, so a sub-1.0 ratio is what the arithmetic predicts regardless of model
+> quality. Expect this number to move once corpus-level WER lands.
 
 ### Failure Category Breakdown
 
@@ -63,6 +80,57 @@ bugs in any individual model. Fine-tuning reduced but did not eliminate them.
 | `SUBSTITUTION_NUMBER` | 0% | 0% | 0% | 0% |
 | `INSERTION_FILLER` | 0% | 0% | 0% | 1% |
 
+> ⚠️ The bottom three rows are 0% because those rules are unreachable, not because those
+> failures never occur. `LANGUAGE_CONFUSION` is the uncategorized fallback. See
+> [Known Limitations](#known-limitations).
+
+---
+
+## Known Limitations
+
+These are known defects in the methodology behind the numbers above. They are being fixed;
+they are documented here because the results should not be read without them.
+
+**1. Baselines and the fine-tuned model were evaluated on different test sets.**
+`evaluation/baseline_eval.py` built its test split from a 300-sample dataset; the fine-tuned
+model was scored on a split from a 1500-sample build. The split is stratified with a fixed seed,
+but a different input pool yields a different test set. Any cross-row comparison in the results
+table — including the previously headlined "41% reduction" — is therefore unsupported.
+*Fix in progress: a frozen, content-addressed corpus with a git-pinned test-set UID list.*
+
+**2. The synthetic "code-switching" is not code-switching.**
+`_make_cs_sample()` concatenates a whole Tamil utterance, 0.1 s of silence, and a whole
+LibriSpeech English utterance, then hardcodes `switch_count=1`. That is *sequential bilingual
+audio*, not intra-sentential switching. Real Tanglish embeds English content words inside Tamil
+morphosyntax, often with Tamil case suffixes attached ("meeting-ku vara mudiyuma"). Because the
+two halves also come from different corpora with different recording channels, a model can score
+well by detecting the channel change rather than by handling code-switching.
+*Fix in progress: word-level splicing of English into Tamil utterances, with a channel pipeline
+applied uniformly and a splice-detectability test as an acceptance gate.*
+
+**3. Script mismatch inflates every WER number reported here.**
+References write English in Latin script; the model emits Tamil script phonetically
+(`ட்ராஃபிக்` for "traffic"). A correctly-heard word scores as fully wrong. This means
+whisper-small's 0.957 WER on *monolingual Tamil* is largely measuring orthography and
+normalization, not recognition.
+*Fix in progress: Script-Normalized WER (SN-WER) reported alongside raw WER, plus a
+`script_penalty` metric isolating how much reported error is rendering rather than mishearing.*
+
+**4. WER is averaged per-utterance instead of corpus-level.**
+`compute_stratified_wer()` computes `sum(per_utterance_wer) / n`, which over-weights short
+utterances. Standard WER is total edit distance over total reference words.
+*Fix in progress: corpus-level WER, with the old macro value retained for comparison.*
+
+**5. The failure taxonomy has two live categories, not five.**
+`LANGUAGE_CONFUSION` is the default `return` when no other rule matches.
+`DELETION_PROPER_NOUN` is unreachable (`analyze_failures` lowercases the reference, then
+`categorize_failure` tests `w[0].isupper()`). `SUBSTITUTION_NUMBER` never fires because both
+source corpora spell numbers as words. Categorization also compares words by position with no
+alignment, so a single insertion or deletion misclassifies everything after it.
+*Fix in progress: alignment-driven categories (`SCRIPT_MISMATCH`, `SWITCH_BOUNDARY`,
+`HALLUCINATION_LOOP`, `OTHER`); the unreachable categories are being removed rather than
+repaired.*
+
 ---
 
 ## Live Demo
@@ -72,9 +140,14 @@ The fine-tuned model is served via a FastAPI endpoint with Swagger UI.
 ```bash
 git clone https://github.com/Rvdhanush/indic_codeswitched_asr
 cd indic_codeswitched_asr
-pip install -r requirements.txt
+pip install -e ".[serve]"
 uvicorn api.app:app --host 0.0.0.0 --port 8000
 ```
+
+> The `[serve]` extra installs `python-multipart`, which FastAPI requires for the file-upload
+> endpoints, and pulls CPU-only torch. Note that `checkpoints/` is gitignored — a fresh clone has
+> no local adapter and the server currently falls back to base Whisper-small. Pull the adapter
+> from [the Hub](https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora) or train your own.
 
 Open **http://127.0.0.1:8000/docs** for the interactive Swagger UI.
 
@@ -127,9 +200,9 @@ evaluation/baseline_eval.py   fine_tuning/train.py
         │                          q_proj + v_proj only
         ▼                          Weighted sampler:
 evaluation/metrics.py               code_switched ×3
-  WER / CER                         high-switch    ×2
+  WER / CER                         high-switch    ×6
   Stratified by segment type        monolingual   ×0.5
-  Failure taxonomy (5 types)        │
+  Failure taxonomy (2 live types)   │
         │                           ▼
         ▼                     checkpoints/best_model/
   results/
@@ -137,13 +210,13 @@ evaluation/metrics.py               code_switched ×3
 
 ## Failure Taxonomy
 
-| Category | Description |
-|---|---|
-| `SUBSTITUTION_SWITCH` | Transcription error at a language switch boundary |
-| `DELETION_PROPER_NOUN` | Named entity or proper noun deleted from output |
-| `SUBSTITUTION_NUMBER` | Number, date, or digit sequence transcribed incorrectly |
-| `LANGUAGE_CONFUSION` | Tamil word transcribed in English script or vice versa |
-| `INSERTION_FILLER` | Hallucinated filler word inserted into output |
+| Category | Description | Status |
+|---|---|---|
+| `SUBSTITUTION_SWITCH` | Transcription error at a language switch boundary | live, but positional (no alignment) |
+| `INSERTION_FILLER` | Hallucinated filler word inserted into output | live |
+| `LANGUAGE_CONFUSION` | *Intended:* Tamil word transcribed in English script or vice versa | **fallback branch** — means "uncategorized" |
+| `DELETION_PROPER_NOUN` | Named entity or proper noun deleted from output | **unreachable** (reference is lowercased first) |
+| `SUBSTITUTION_NUMBER` | Number, date, or digit sequence transcribed incorrectly | **never fires** (corpora spell numbers as words) |
 
 ---
 
@@ -165,26 +238,32 @@ evaluation/metrics.py               code_switched ×3
 ## Setup
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[train]"     # or ".[serve]" for API only, ".[dev]" for tests
 cp .env.example .env
 # Add HF_TOKEN and WANDB_API_KEY to .env
 ```
 
+Dependency sets are declared in `pyproject.toml` and mirrored by `requirements/{base,serve,train,dev}.txt`.
+
 ## Reproduce
+
+Run as modules (`python -m`), not as scripts — `python evaluation/baseline_eval.py` cannot
+resolve its own package imports.
 
 ```bash
 # 1. Prepare dataset (streams from HuggingFace, no full download)
-python data/prepare_dataset.py
+python -m data.prepare_dataset
 
-# 2. Baseline evaluation
-python evaluation/baseline_eval.py
+# 2. Baseline evaluation  (--dry-run lists models without writing anything)
+python -m evaluation.baseline_eval --dry-run
+python -m evaluation.baseline_eval
 
 # 3. Fine-tune (recommended on Colab T4+)
-python fine_tuning/train.py
+python -m fine_tuning.train
 # or use notebooks/colab_finetune.ipynb
 
 # 4. Failure analysis report
-python analysis/report.py
+python -m analysis.report
 ```
 
 ## Fine-tuning Configuration

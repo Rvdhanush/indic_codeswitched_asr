@@ -124,6 +124,13 @@ def build_markdown(all_results: dict) -> str:
         "",
         "Generated from `results/baseline_wer_all.json`.",
         "",
+        "> ⚠️ **The comparisons in this report are not currently valid.** The models in "
+        "`baseline_wer_all.json` were not all evaluated on the same test set, WER is averaged "
+        "per utterance rather than corpus-level, and three of the five failure categories are "
+        "unreachable (`LANGUAGE_CONFUSION` is the classifier's fallback branch, so it means "
+        "\"uncategorized\"). See README → Known Limitations. This banner will be removed once "
+        "results carry a shared `corpus_id` and corpus-level metrics.",
+        "",
     ]
 
     # ------------------------------------------------------------------

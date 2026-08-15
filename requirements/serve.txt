@@ -1,0 +1,9 @@
+# API / demo server on a CPU-only host.
+#
+# --extra-index-url ADDS the PyTorch CPU index alongside PyPI (unlike
+# --index-url, which replaces it and would 404 on every non-torch package).
+# Without this, `torch` resolves to the default CUDA wheel and pulls several
+# GB of nvidia-* libs onto a machine with no GPU.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+-e .[serve]

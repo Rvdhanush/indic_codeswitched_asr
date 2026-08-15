@@ -13,7 +13,6 @@ tags:
   - peft
 base_model: openai/whisper-small
 datasets:
-  - ai4bharat/indicvoices
   - SPRINGLab/IndicVoices-R_Tamil
   - librispeech_asr
 metrics:
@@ -22,7 +21,25 @@ metrics:
 
 # whisper-small-tanglish-lora
 
-A **Whisper-small** model fine-tuned with LoRA adapters on Tamil-English code-switched speech (Tanglish), trained on the [IndicVoices](https://huggingface.co/datasets/ai4bharat/indicvoices) Tamil corpus.
+A **Whisper-small** model fine-tuned with LoRA adapters on **synthetic** Tamil-English
+code-switched speech (Tanglish), built from [IndicVoices-R Tamil](https://huggingface.co/datasets/SPRINGLab/IndicVoices-R_Tamil)
+and [LibriSpeech](https://huggingface.co/datasets/librispeech_asr) English.
+
+> ### ⚠️ Evaluation caveat — read before citing these numbers
+>
+> The WER comparison below is **not like-for-like**. The baselines were scored on a 50-sample
+> test split from a 300-sample dataset build; this model on a 150-sample split from a
+> 1500-sample build — different data. The previously claimed "41.5% relative reduction" is
+> therefore unsupported as measured.
+>
+> Two further caveats: WER is averaged per utterance rather than corpus-level, and the
+> reference transcripts write English in Latin script while the model emits Tamil script
+> phonetically, so correctly-heard English words score as fully wrong. Absolute WER here is
+> inflated by an unmeasured amount.
+>
+> **What this model is:** a working demonstration that a 14 MB LoRA adapter measurably changes
+> Whisper-small's behaviour on mixed Tamil-English audio — most visibly by eliminating the
+> repetition-collapse failure. **What it is not:** a benchmarked improvement over the baselines.
 
 ## Model Description
 
@@ -58,9 +75,15 @@ WER on held-out test set (synthetic Tamil-English code-switched corpus), stratif
 | Code-switched | 0.964 | 0.879 | **0.564** |
 | CS Penalty (×) | 0.98× | 1.05× | **0.84×** |
 
-**41.5% relative WER reduction** on code-switched speech vs. Whisper-small baseline. **36% improvement** over the best pre-trained Tamil-specialized model.
+~~**41.5% relative WER reduction** on code-switched speech vs. Whisper-small baseline. **36% improvement** over the best pre-trained Tamil-specialized model.~~
 
-> CS Penalty = code-switched WER ÷ average(mono-Tamil WER, mono-English WER). A value below 1.0 means the model handles code-switched speech *better* than monolingual speech — the opposite of all three baselines.
+**Retracted** — the columns above were measured on different test sets. See the caveat at the top.
+
+> CS Penalty = code-switched WER ÷ average(mono-Tamil WER, mono-English WER). The 0.84× value
+> was previously read as "handles code-switched better than monolingual." That reading is
+> unsafe: WER is averaged per utterance, and code-switched samples are two utterances
+> concatenated — one Tamil (harder) and one English (easier) — so a sub-1.0 ratio follows from
+> word-count weighting regardless of model quality.
 
 See full results in the [training repository](https://github.com/Rvdhanush/indic_codeswitched_asr).
 
@@ -76,17 +99,24 @@ The fine-tuning strategy was derived from a structured analysis of 5 failure cat
 | `SUBSTITUTION_NUMBER` | Number or date transcribed incorrectly | 0% | 0% | 0% | 0% |
 | `INSERTION_FILLER` | Hallucinated filler (um, uh, like) | 0% | 0% | 0% | 1% |
 
-Only `SUBSTITUTION_SWITCH` and `LANGUAGE_CONFUSION` were observed — both are systemic architectural blind spots shared across all models, not model-specific bugs. Fine-tuning reduced `LANGUAGE_CONFUSION` from 54% → 41% but did not eliminate either category.
+> ⚠️ Only two categories appear because the other three cannot fire. `LANGUAGE_CONFUSION` is the
+> classifier's fallback branch — it means "no other rule matched", not "language confusion was
+> detected". `DELETION_PROPER_NOUN` tests for capitalised words in a reference that was already
+> lowercased. `SUBSTITUTION_NUMBER` looks for digits that neither source corpus produces. And
+> `SUBSTITUTION_SWITCH` compares words by index with no alignment, so a single insertion or
+> deletion misclassifies everything downstream. These percentages describe the measurement
+> apparatus more than the models.
 
 ## Training Procedure
 
-**Data sampling** (targeted oversampling):
+**Data sampling** (targeted oversampling, as actually applied to this adapter):
 - Code-switched segments: ×3
-- Segments with >2 language switch points: ×2
+- Segments with >2 language switch points: ×2 — **this branch never fired**, because synthetic
+  code-switched samples hardcode `switch_count=1`. Effectively all code-switched samples got ×3.
 - Monolingual segments: ×0.5 (undersampled)
 
 **Hyperparameters:**
-- Epochs: 3
+- Epochs: 3 (the repo's `config.yaml` default has since changed to 5)
 - Batch size: 4 (effective: 16 with gradient accumulation ×4)
 - Learning rate: 1e-3 with 50 warmup steps
 - Optimizer: AdamW 8-bit
@@ -125,10 +155,23 @@ curl -X POST http://localhost:8000/transcribe -F "audio=@speech.wav"
 
 ## Limitations
 
-- Trained on 1500 samples — a small corpus. Performance on diverse speakers, accents, and domains will vary.
-- Language detection for segment tagging uses `langdetect`, which can misclassify short Tamil-script words.
-- Numbers and proper nouns (especially transliterated names) remain a known weak point — see `DELETION_PROPER_NOUN` and `SUBSTITUTION_NUMBER` failure categories.
-- Not evaluated on spontaneous conversational speech; training data is read-speech from IndicVoices.
+**Training data is not real code-switching.** Code-switched samples are built by concatenating a
+whole Tamil utterance, 0.1 s of silence, and a whole English utterance. That is *sequential
+bilingual audio*, not intra-sentential switching — real Tanglish embeds English content words
+inside Tamil morphosyntax, often with Tamil case suffixes attached ("meeting-ku vara mudiyuma").
+The Tamil and English halves also come from different corpora with different recording channels,
+so a model can score well on this data by detecting the channel change rather than by handling
+code-switching. Treat any code-switching claim about this adapter as unvalidated.
+
+**Output script.** The model emits Tamil script for English words it recognises
+(`ட்ராஃபிக்` for "traffic"). Meaning is often preserved, but downstream consumers expecting
+mixed-script output will need a transliteration step.
+
+**Other limitations:**
+- Trained on 1500 samples — a small corpus. Performance across speakers, accents, and domains will vary.
+- Segment tagging uses `langdetect`, which is unreliable on short Tamil-script words. Per-word switch counts derived from it are close to noise.
+- Not evaluated on spontaneous conversational speech; source audio is read speech.
+- Never evaluated on a real Tanglish corpus. All reported numbers come from the synthetic distribution it was trained on.
 
 ## Citation
 

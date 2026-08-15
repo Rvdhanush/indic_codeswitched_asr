@@ -73,22 +73,37 @@ to CUDA. Comparison requests take longer but the server stays stable.
 
 ## What We Discovered
 
+> ⚠️ **Corrections applied 2026-08-16.** Two of the four findings below did not survive review
+> and are annotated inline. The short version: the baselines and the fine-tuned model were
+> evaluated on **different test sets**, so no cross-model comparison here is valid, and the
+> CS-penalty argument is a word-count weighting artifact. See
+> [README → Known Limitations](README.md#known-limitations). The hallucination-collapse finding
+> and the script-selection finding do stand — both are observable without a metric.
+
 **Baseline hallucination collapse on code-switched input.** Whisper-small, when encountering
 English words mid-sentence, does not produce a wrong English transcription — it produces
 a Tamil word repeated 20-25 times in a loop. This is a known failure mode in seq2seq
 models when the decoder becomes uncertain: it locks into a high-probability local pattern
 and repeats it. The fine-tuned model eliminates this completely.
 
-**41% WER reduction with 1.44% parameters updated.** LoRA on `q_proj` and `v_proj` only
-— 3.5 million trainable parameters out of 245 million total — was sufficient to shift the
-model's behavior fundamentally on code-switched input. The CS penalty dropped from 0.98×
-(slightly better on monolingual) to 0.84× (meaningfully better on code-switched). The
-oversampling strategy — not the LoRA architecture itself — is the likely driver of this.
+~~**41% WER reduction with 1.44% parameters updated.**~~ **Retracted.** The two WER figures were
+measured on different test sets (150 samples from a 1500-sample dataset build vs 50 from a
+300-sample build), so the delta between them is not a measurement of anything. The CS-penalty
+argument is separately unsound: WER was averaged per utterance rather than corpus-level, and
+code-switched samples are two utterances concatenated — one Tamil (harder) and one English
+(easier) — so a sub-1.0 ratio follows from word-count weighting regardless of model quality.
 
-**A fine-tuned small model beats a larger specialized model.** Whisper-small + LoRA (0.564
-code-switched WER) outperformed Whisper-tamil-medium (0.879) despite the latter being a
-Tamil-specialized model trained on far more Tamil data. Targeted fine-tuning on the right
-distribution beats general-purpose specialization for this task.
+What remains true and worth stating: LoRA on `q_proj`/`v_proj` alone — 3.5M trainable parameters
+out of 245M — was enough to *change the model's behaviour* on mixed-language input, visibly and
+reproducibly. Quantifying that change requires the frozen test set and corpus-level metrics that
+are being built now.
+
+~~**A fine-tuned small model beats a larger specialized model.**~~ **Retracted, same reason.**
+The 0.564 (ours) vs 0.879 (Whisper-tamil-medium) comparison spans two different test sets. There
+is an additional confound specific to this claim: our training data pairs IndicVoices Tamil audio
+with LibriSpeech English audio — two corpora with different recording channels, joined by a fixed
+0.1 s silence. A model can lower loss on that distribution by learning the channel boundary rather
+than by handling code-switching, and nothing in the current evaluation distinguishes the two.
 
 **LANGUAGE_CONFUSION is the remaining hard problem.** After fine-tuning, the model transcribes
 "I'll be 10 minutes late" as "ஆயில்பி டென்னுனெட்ஸ்லேட்" — English words in Tamil script.

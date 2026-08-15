@@ -1,0 +1,5 @@
+# Test environment (CI). CPU torch keeps installs fast; `datasets` is included
+# because evaluation/baseline_eval.py imports it at module level.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+-e .[dev]

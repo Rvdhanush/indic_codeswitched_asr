@@ -50,17 +50,36 @@
       "INSERTION_FILLER": 0
     }
   },
+  "whisper_small_lora": {
+    "model_name": "checkpoints/best_model",
+    "overall_wer": 0.6823,
+    "monolingual_tamil_wer": 0.7692,
+    "monolingual_english_wer": 0.5663,
+    "code_switched_wer": 0.5635,
+    "code_switch_penalty": 0.844,
+    "dominant_failure_category": "SUBSTITUTION_SWITCH",
+    "dominant_failure_share_pct": 58.0,
+    "failure_breakdown": {
+      "SUBSTITUTION_SWITCH": 87,
+      "DELETION_PROPER_NOUN": 0,
+      "SUBSTITUTION_NUMBER": 0,
+      "LANGUAGE_CONFUSION": 62,
+      "INSERTION_FILLER": 1
+    }
+  },
   "_meta": {
     "shared_systemic_failures": [
       "LANGUAGE_CONFUSION",
       "SUBSTITUTION_SWITCH"
     ],
     "cs_wer_ranking": [
+      "whisper_small_lora",
       "whisper_tamil",
       "whisper_small",
       "wav2vec2_tamil"
     ],
     "overall_wer_ranking": [
+      "whisper_small_lora",
       "whisper_tamil",
       "whisper_small",
       "wav2vec2_tamil"
