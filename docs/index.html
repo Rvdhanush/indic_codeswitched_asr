@@ -567,7 +567,7 @@ footer.foot nav a:hover { color: var(--ta); }
     <div class="signal">
       <div class="wrap">
         <div class="signal-head">
-          <span class="label">One utterance &middot; 4 switch points</span>
+          <span class="label" id="signalLabel">One utterance</span>
           <span class="legend">
             <span><i class="i-ta"></i>Tamil</span>
             <span><i class="i-en"></i>English</span>
@@ -893,6 +893,19 @@ footer.foot nav a:hover { color: var(--ta); }
     { text: "iruku",                  lang: "ta",  span: 0.15 }
   ];
 
+  // Adjacent segments in the same language are one continuous stretch of
+  // speech, not a switch. Counting boundaries instead of language changes
+  // would overstate this by one.
+  var SWITCHES = SEGMENTS.reduce(function (n, seg, i) {
+    return i > 0 && seg.lang !== SEGMENTS[i - 1].lang ? n + 1 : n;
+  }, 0);
+
+  var signalLabel = document.getElementById("signalLabel");
+  if (signalLabel) {
+    signalLabel.textContent = "One utterance · " + SWITCHES +
+      " switch point" + (SWITCHES === 1 ? "" : "s");
+  }
+
   /* --- word ribbon ---------------------------------------------------- */
   var ribbon = document.getElementById("ribbon");
   if (ribbon) {
@@ -982,6 +995,7 @@ footer.foot nav a:hover { color: var(--ta); }
         ctx.strokeStyle = edgeC;
         ctx.lineWidth = 1;
         for (var e = 1; e < bars.edges.length; e++) {
+          if (bars.edges[e].lang === bars.edges[e - 1].lang) continue;
           var x = Math.round(bars.edges[e].from * W) + 0.5;
           ctx.beginPath();
           ctx.moveTo(x, 6);
