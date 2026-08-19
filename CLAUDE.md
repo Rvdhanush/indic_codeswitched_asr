@@ -61,24 +61,20 @@ python -m pytest tests/ -q
 
 ## Site and branches
 
-`master` is **frozen** at `65505f5` and must stay that way unless the user says otherwise. It still
-carries the retracted "41% WER reduction" headline; that is deliberate, not an oversight.
-
-All work lands on `dev`. The public site publishes from `dev`:
-
-```
-commit to dev -> push origin dev -> .github/workflows/pages.yml -> live (~17s)
-```
+The public site is served by GitHub Pages from **`master:/docs`** (`build_type: legacy`), not by
+a workflow and not from `dev`.
 
 - **Live:** https://rvdhanush.github.io/indic_codeswitched_asr/
-- **Source:** `docs/index.html` — one self-contained file, no build step. Kept single-file so the
-  same source feeds both the design preview and production. Revisit a framework only when the
-  hosted demo adds real interactive state (upload, loading, error, comparison).
-- Pages is configured with `build_type: workflow`, so the Pages branch setting is ignored.
+- **Source:** `docs/index.html` on `master` -- one self-contained file, no build step.
 
-The site currently presents `master`'s numbers, and its footer links point at `/blob/master/...`,
-which is frozen — so the site and everything it links to agree. If the site is updated to the
-corrected results, those links move to `dev` **in the same change**, never before.
+`master` holds exactly two things beyond its original state: the original results (including the
+retracted 41% headline) and that page. The page presents those results, so the two agree. Do not
+change either half without changing the other, and do not merge `dev` into `master` casually --
+that would silently rewrite what the live site claims.
+
+All backend work happens on `dev` and does **not** redeploy the site. Pushing `dev` runs the test
+suite only. To update the live site, commit `docs/index.html` on `master`; Pages rebuilds within
+about a minute.
 
 ## Architecture
 

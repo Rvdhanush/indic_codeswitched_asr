@@ -10,10 +10,9 @@
 [Results](RESULTS.md) ·
 [Research journal](RESEARCH_JOURNAL.md)
 
-> ℹ️ The live site is published from `dev` by
-> [`.github/workflows/pages.yml`](.github/workflows/pages.yml) on every push. It currently
-> presents the results as they stood on `master`, **including the retracted 41% figure below**.
-> Reconciling the two is tracked in [Known Limitations](#known-limitations).
+> ℹ️ The live site is served from `master:/docs`, and it presents the results as they stand on
+> `master` — **including the retracted 41% figure**. `master` is the published snapshot;
+> this branch (`dev`) is the corrected work in progress. Pushing `dev` does not change the site.
 
 > ⚠️ **The headline WER comparison in earlier versions of this README was not valid.**
 > Baselines and the fine-tuned model were scored on **different test sets**, so the previously
