@@ -21,6 +21,38 @@ See the waveform of a real code-switched utterance, watch the baseline collapse 
 repetition loop where the language switches, and compare it against the fine-tuned output
 on the same audio.
 
+<p align="center">
+  <a href="https://rvdhanush.github.io/indic_codeswitched_asr/">
+    <img src="docs/assets/hero.jpg" width="100%"
+         alt="Site hero: the waveform of one Tanglish utterance, coloured saffron where the speaker is in Tamil and cyan where they switch to English, with the three switch points marked">
+  </a>
+</p>
+
+<table>
+<tr>
+<td width="50%">
+  <img src="docs/assets/failure.jpg"
+       alt="Baseline Whisper-small collapsing into a repetition loop, beside the coherent fine-tuned output on the same audio">
+</td>
+<td width="50%">
+  <img src="docs/assets/results.jpg"
+       alt="Word error rate on code-switched speech across four models, as a bar chart and a full table split by segment type">
+</td>
+</tr>
+<tr>
+<td><b>The failure.</b> Whisper-small does not mistranscribe the English words &mdash; it locks onto one Tamil word and repeats it 25 times. The fine-tuned model beside it stays coherent.</td>
+<td><b>The results.</b> WER split by segment type, because a single overall number hides the code-switching penalty entirely.</td>
+</tr>
+</table>
+
+<details>
+<summary>Mobile</summary>
+<p align="center">
+  <img src="docs/assets/mobile.jpg" width="340"
+       alt="The same page at phone width, waveform and all">
+</p>
+</details>
+
 ---
 
 ## Problem Statement
