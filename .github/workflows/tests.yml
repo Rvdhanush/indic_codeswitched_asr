@@ -1,10 +1,12 @@
 name: Tests
 
+# These targeted `main`, which does not exist in this repo (the default branch
+# is `master`), so the suite had never actually run on CI.
 on:
   push:
-    branches: [main]
+    branches: [dev, master]
   pull_request:
-    branches: [main]
+    branches: [dev, master]
 
 jobs:
   test:

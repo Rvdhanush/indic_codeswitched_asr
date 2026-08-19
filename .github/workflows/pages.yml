@@ -1,0 +1,45 @@
+name: Deploy site
+
+# The site publishes from `dev`, not the default branch. `master` is frozen and
+# must stay that way, so Pages is fed by this workflow rather than by the
+# "deploy from a branch" setting (which would also work, but is invisible in the
+# repo and cannot grow a build step).
+#
+# Triggering on every push to `dev` rather than on `docs/**` is deliberate: a
+# deploy takes ~30s, and a path filter is one more thing to keep in sync the
+# first time the page starts deriving content from results/*.json.
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; the newest push wins.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      # docs/ is served as-is. No build: the page is a single self-contained
+      # file so the same source feeds both the design preview and production.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
