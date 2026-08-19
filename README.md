@@ -3,6 +3,24 @@
 > Structured failure taxonomy for Tanglish ASR + LoRA fine-tuning that achieves
 > **41% WER reduction on code-switched speech** using only 1.44% of model parameters.
 
+<p align="center">
+  <a href="https://rvdhanush.github.io/indic_codeswitched_asr/">
+    <img alt="Live demo" src="https://img.shields.io/badge/Live%20Demo-rvdhanush.github.io-F5A524?style=for-the-badge&labelColor=0A0E13">
+  </a>
+  <a href="https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora">
+    <img alt="Model on Hugging Face" src="https://img.shields.io/badge/Model-Hugging%20Face-57C7E3?style=for-the-badge&labelColor=0A0E13">
+  </a>
+  <a href="RESULTS.md">
+    <img alt="Full results" src="https://img.shields.io/badge/Results-Full%20breakdown-8B98A6?style=for-the-badge&labelColor=0A0E13">
+  </a>
+</p>
+
+### [Open the live demo -> rvdhanush.github.io/indic_codeswitched_asr](https://rvdhanush.github.io/indic_codeswitched_asr/)
+
+See the waveform of a real code-switched utterance, watch the baseline collapse into a
+repetition loop where the language switches, and compare it against the fine-tuned output
+on the same audio.
+
 ---
 
 ## Problem Statement
