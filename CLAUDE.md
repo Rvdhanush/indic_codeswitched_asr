@@ -59,6 +59,27 @@ python -m analysis.report
 python -m pytest tests/ -q
 ```
 
+## Site and branches
+
+`master` is **frozen** at `65505f5` and must stay that way unless the user says otherwise. It still
+carries the retracted "41% WER reduction" headline; that is deliberate, not an oversight.
+
+All work lands on `dev`. The public site publishes from `dev`:
+
+```
+commit to dev -> push origin dev -> .github/workflows/pages.yml -> live (~17s)
+```
+
+- **Live:** https://rvdhanush.github.io/indic_codeswitched_asr/
+- **Source:** `docs/index.html` — one self-contained file, no build step. Kept single-file so the
+  same source feeds both the design preview and production. Revisit a framework only when the
+  hosted demo adds real interactive state (upload, loading, error, comparison).
+- Pages is configured with `build_type: workflow`, so the Pages branch setting is ignored.
+
+The site currently presents `master`'s numbers, and its footer links point at `/blob/master/...`,
+which is frozen — so the site and everything it links to agree. If the site is updated to the
+corrected results, those links move to `dev` **in the same change**, never before.
+
 ## Architecture
 
 ### Pipeline Flow

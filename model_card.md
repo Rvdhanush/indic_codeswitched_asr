@@ -25,6 +25,9 @@ A **Whisper-small** model fine-tuned with LoRA adapters on **synthetic** Tamil-E
 code-switched speech (Tanglish), built from [IndicVoices-R Tamil](https://huggingface.co/datasets/SPRINGLab/IndicVoices-R_Tamil)
 and [LibriSpeech](https://huggingface.co/datasets/librispeech_asr) English.
 
+**Project site: [rvdhanush.github.io/indic_codeswitched_asr](https://rvdhanush.github.io/indic_codeswitched_asr/)**
+· [Code](https://github.com/Rvdhanush/indic_codeswitched_asr)
+
 > ### ⚠️ Evaluation caveat — read before citing these numbers
 >
 > The WER comparison below is **not like-for-like**. The baselines were scored on a 50-sample

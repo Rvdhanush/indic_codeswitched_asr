@@ -3,6 +3,11 @@
 A full account of decisions made, obstacles encountered, and lessons learned
 building this project from scratch — including the parts that didn't work the first time.
 
+[Live site](https://rvdhanush.github.io/indic_codeswitched_asr/) ·
+[README](README.md) ·
+[Results](RESULTS.md) ·
+[Model](https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora)
+
 ---
 
 ## The Problem We Set Out To Solve

@@ -2,6 +2,11 @@
 
 Complete results from baseline evaluation and LoRA fine-tuning experiments.
 
+[Live site](https://rvdhanush.github.io/indic_codeswitched_asr/) ·
+[README](README.md) ·
+[Research journal](RESEARCH_JOURNAL.md) ·
+[Model](https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora)
+
 > ## ⚠️ Read this first
 >
 > **The cross-model comparisons on this page are not valid as measured.** They are preserved

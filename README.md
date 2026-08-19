@@ -3,6 +3,18 @@
 > A failure taxonomy for Tanglish ASR, a synthetic code-switched training pipeline, and a
 > 14 MB LoRA adapter for Whisper-small that trains 1.44% of parameters.
 
+### **[→ rvdhanush.github.io/indic_codeswitched_asr](https://rvdhanush.github.io/indic_codeswitched_asr/)**
+
+[Live site](https://rvdhanush.github.io/indic_codeswitched_asr/) ·
+[Model on Hugging Face](https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora) ·
+[Results](RESULTS.md) ·
+[Research journal](RESEARCH_JOURNAL.md)
+
+> ℹ️ The live site is published from `dev` by
+> [`.github/workflows/pages.yml`](.github/workflows/pages.yml) on every push. It currently
+> presents the results as they stood on `master`, **including the retracted 41% figure below**.
+> Reconciling the two is tracked in [Known Limitations](#known-limitations).
+
 > ⚠️ **The headline WER comparison in earlier versions of this README was not valid.**
 > Baselines and the fine-tuned model were scored on **different test sets**, so the previously
 > claimed "41% WER reduction" is not supported by the data that produced it. The numbers below
@@ -141,7 +153,12 @@ repaired.*
 
 ## Live Demo
 
-The fine-tuned model is served via a FastAPI endpoint with Swagger UI.
+**Project site: [rvdhanush.github.io/indic_codeswitched_asr](https://rvdhanush.github.io/indic_codeswitched_asr/)**
+— the waveform of a real code-switched utterance, the baseline repetition-collapse failure beside
+the fine-tuned output, and the WER breakdown. Source in [`docs/`](docs/), deployed from `dev`.
+
+Hosted inference is not up yet. To run it locally, the fine-tuned model is served via a FastAPI
+endpoint with Swagger UI.
 
 ```bash
 git clone https://github.com/Rvdhanush/indic_codeswitched_asr
