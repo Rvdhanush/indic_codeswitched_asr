@@ -24,11 +24,39 @@ FAILURE_LABELS = {
     "INSERTION_FILLER": "Hallucinated filler word",
 }
 
+# Keys as they appear in results/*_wer.json. The previous entries
+# (whisper_medium / indic_whisper / indicwav2vec) matched nothing, so every
+# row fell through to its raw key.
 MODEL_DISPLAY = {
-    "whisper_medium": "Whisper-medium",
-    "indic_whisper": "IndicWhisper",
-    "indicwav2vec": "IndicWav2Vec",
+    "whisper_small": "Whisper-small (baseline)",
+    "whisper_tamil": "Whisper-tamil-medium",
+    "wav2vec2_tamil": "Wav2Vec2-tamil",
+    "whisper_small_lora": "Whisper-small + LoRA (ours)",
 }
+
+
+# ---------------------------------------------------------------------------
+# Comparability
+# ---------------------------------------------------------------------------
+
+def corpus_consistency(all_results: dict) -> tuple[str, dict]:
+    """
+    Decide whether the rows in a results file describe the same data.
+
+    Returns (status, {model_key: corpus_id}) where status is:
+      "consistent" - every row carries the same corpus_id
+      "mismatched" - rows carry different corpus_ids; no comparison is valid
+      "unknown"    - at least one row predates corpus stamping
+
+    This is the check that was missing when a model scored on 150 samples was
+    tabulated against models scored on a different 50.
+    """
+    ids = {k: r.get("corpus_id") for k, r in all_results.items()}
+    if not ids:
+        return ("unknown", ids)
+    if any(v is None for v in ids.values()):
+        return ("unknown", ids)
+    return ("consistent" if len(set(ids.values())) == 1 else "mismatched", ids)
 
 
 # ---------------------------------------------------------------------------
@@ -116,22 +144,76 @@ def _md_table(headers: list[str], rows: list[list]) -> str:
     return "\n".join(lines)
 
 
-def build_markdown(all_results: dict) -> str:
-    lines = []
+def _header_lines(all_results: dict) -> list[str]:
+    """
+    Title plus a provenance or invalidity banner, chosen by whether the rows are
+    actually comparable. A report that silently tabulates scores from different
+    test sets is worse than no report.
+    """
+    status, ids = corpus_consistency(all_results)
 
-    lines += [
+    lines = [
         "# Tamil-English Code-Switched ASR: Failure Analysis Report",
         "",
         "Generated from `results/baseline_wer_all.json`.",
         "",
-        "> ⚠️ **The comparisons in this report are not currently valid.** The models in "
-        "`baseline_wer_all.json` were not all evaluated on the same test set, WER is averaged "
-        "per utterance rather than corpus-level, and three of the five failure categories are "
-        "unreachable (`LANGUAGE_CONFUSION` is the classifier's fallback branch, so it means "
-        "\"uncategorized\"). See README → Known Limitations. This banner will be removed once "
-        "results carry a shared `corpus_id` and corpus-level metrics.",
+    ]
+
+    if status == "consistent":
+        cid = next(iter(ids.values()))
+        splits = {r.get("split") for r in all_results.values() if r.get("split")}
+        counts = {r.get("total_samples") for r in all_results.values()}
+        split_note = f", split `{splits.pop()}`" if len(splits) == 1 else ""
+        count_note = f", {counts.pop()} samples" if len(counts) == 1 else ""
+        return lines + [
+            f"Corpus `{cid}`{split_note}{count_note}. "
+            f"Every row below was scored on the same samples.",
+            "",
+            "> Metric caveats still apply: WER is macro-averaged per utterance "
+            "rather than corpus-level, references write English in Latin script "
+            "while the models emit Tamil script phonetically, and three of the five "
+            "failure categories are unreachable (`LANGUAGE_CONFUSION` is the "
+            "classifier fallback branch, so it means uncategorized). "
+            "See README -> Known Limitations.",
+            "",
+        ]
+
+    if status == "mismatched":
+        return lines + [
+            "> **STOP: the rows below were scored on different data.** Their "
+            "`corpus_id` values disagree, so no comparison between them means "
+            "anything. Re-run every model against one frozen split:",
+            ">",
+            "> ```",
+            "> python -m evaluation.baseline_eval",
+            "> ```",
+            ">",
+        ] + [
+            f"> - `{k}`: corpus_id `{v}`" for k, v in ids.items()
+        ] + [""]
+
+    return lines + [
+        "> **The comparisons in this report are not currently valid.** At least one "
+        "row carries no `corpus_id`, so there is no evidence the models were scored "
+        "on the same test set, and for the committed results they were not. WER is "
+        "also macro-averaged per utterance rather than corpus-level, and three of "
+        "the five failure categories are unreachable (`LANGUAGE_CONFUSION` is the "
+        "classifier fallback branch, so it means uncategorized). "
+        "See README -> Known Limitations. Re-run against the frozen corpus to "
+        "clear this banner:",
+        ">",
+        "> ```",
+        "> python -m data.corpus freeze",
+        "> python -m evaluation.baseline_eval",
+        "> ```",
         "",
     ]
+
+
+def build_markdown(all_results: dict) -> str:
+    lines = []
+
+    lines += _header_lines(all_results)
 
     # ------------------------------------------------------------------
     # 1. WER comparison table
@@ -308,6 +390,9 @@ def build_summary(all_results: dict) -> dict:
         dom_cat, dom_share = dominant_failure(bd)
         summary[key] = {
             "model_name": r.get("model_name"),
+            "corpus_id": r.get("corpus_id"),
+            "split": r.get("split"),
+            "total_samples": r.get("total_samples"),
             "overall_wer": r.get("overall_wer"),
             "monolingual_tamil_wer": r.get("monolingual_tamil_wer"),
             "monolingual_english_wer": r.get("monolingual_english_wer"),
@@ -317,7 +402,11 @@ def build_summary(all_results: dict) -> dict:
             "dominant_failure_share_pct": dom_share,
             "failure_breakdown": bd,
         }
+    status, ids = corpus_consistency(all_results)
     summary["_meta"] = {
+        "corpus_status": status,
+        "corpus_ids": ids,
+        "comparable": status == "consistent",
         "shared_systemic_failures": shared_failures(all_results),
         "cs_wer_ranking": [k for k, _ in wer_ranking(all_results, "code_switched_wer")],
         "overall_wer_ranking": [k for k, _ in wer_ranking(all_results, "overall_wer")],
@@ -347,8 +436,8 @@ def main():
 
     if not args.results.exists():
         print(f"Error: results file not found at {args.results}")
-        print("Run evaluation/baseline_eval.py first.")
-        raise SystemExit(1)
+        print("Run: python -m evaluation.baseline_eval")
+        return 1
 
     with open(args.results) as f:
         all_results = json.load(f)
@@ -366,6 +455,24 @@ def main():
         json.dump(summary, f, indent=2)
     print(f"Summary written to {json_path}")
 
+    # The files are written either way so the banner is visible, but a report
+    # whose rows are not comparable must not exit 0 and be mistaken for a
+    # published result.
+    status, ids = corpus_consistency(all_results)
+    if status == "mismatched":
+        print("\nERROR: models were scored on different data:")
+        for key, cid in ids.items():
+            print(f"  {key:<20} corpus_id {cid}")
+        print("Re-run every model on one frozen split before publishing.")
+        return 1
+    if status == "unknown":
+        print(
+            "\nWARNING: at least one result predates corpus stamping; "
+            "comparability is unverified."
+        )
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -35,8 +35,12 @@ training:
   optim: "adamw_8bit"
 
 data:
+  # Splits are read from the frozen corpus (data/corpus/splits/*.json),
+  # not rebuilt. Change the corpus with: python -m data.corpus freeze
   train_split: "train"
   val_split: "validation"
+  # Corpus build size. Consumed by `data.corpus freeze --size`, recorded
+  # in the manifest provenance. Training reads whatever was frozen.
   max_samples: 1500
   max_audio_length_seconds: 30
   oversample_code_switched: 3

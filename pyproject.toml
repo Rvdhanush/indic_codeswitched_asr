@@ -48,8 +48,9 @@ train = [
     "tqdm>=4.66.0",
 ]
 
-# `datasets` is here because evaluation/baseline_eval.py imports it at module
-# level; without it any test touching that module fails on CI at import.
+# `datasets` is here because data/prepare_dataset.py imports it at module level
+# (data/corpus.py imports that module in turn); without it any test touching
+# the data package fails on CI at import.
 dev = [
     "indic-codeswitched-asr[serve]",
     "datasets>=2.19.0,<3.0.0",

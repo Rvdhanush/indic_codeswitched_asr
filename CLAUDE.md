@@ -26,10 +26,16 @@ Dependency sets live in `pyproject.toml` optional-dependencies, mirrored by
 Always run as modules. `python evaluation/baseline_eval.py` fails — running a file as a script
 puts `evaluation/` on `sys.path[0]`, so `from evaluation.metrics import ...` cannot resolve.
 
-**Prepare dataset** (streams from HuggingFace, outputs metadata to `data/processed/`):
+**Build the frozen corpus** (streams from HuggingFace, writes `data/corpus/`). This is the
+dataset entrypoint — everything downstream reads the frozen splits, nothing rebuilds:
 ```bash
-python -m data.prepare_dataset
+python -m data.corpus freeze --size 1500   # refuses to overwrite without --force
+python -m data.corpus verify               # re-hash every wav, check split disjointness
+python -m data.corpus info                 # corpus_id per split, pinned revisions
 ```
+
+`python -m data.prepare_dataset` still exists but only writes an ad-hoc metadata dump to the
+gitignored `data/processed/`. Nothing reads it.
 
 **Run baseline evaluation** (outputs to `results/`):
 ```bash
@@ -58,17 +64,28 @@ python -m pytest tests/ -q
 ### Pipeline Flow
 1. **Data** (`data/prepare_dataset.py`) — Builds a mixed dataset via synthetic code-switching: loads Tamil segments from IndicVoices-R and English segments from LibriSpeech, concatenates Tamil+silence+English pairs to create code-switched samples, resamples to 16kHz, caps segments at 8s, tags each as `monolingual_tamil` / `monolingual_english` / `code_switched`, stratified 80/10/10 split.
 
-2. **Evaluation** (`evaluation/baseline_eval.py` + `evaluation/metrics.py`) — Loads all three baseline models, transcribes the test set, computes WER/CER stratified by segment type, and categorizes failures into 5 types: `SUBSTITUTION_SWITCH`, `DELETION_PROPER_NOUN`, `SUBSTITUTION_NUMBER`, `LANGUAGE_CONFUSION`, `INSERTION_FILLER`.
+2. **Corpus** (`data/corpus.py`) — Freezes a build to disk under `data/corpus/`. Each sample gets
+   `uid = sha256(pcm16 bytes + transcript)`; each split gets `corpus_id = sha256(sorted uids)`.
+   `manifest.json` and `splits/*.json` are git-tracked; `audio/` is gitignored and verified by
+   per-file sha256. `load_split(name)` returns samples in the shape the rest of the pipeline
+   already expects, plus `uid` and `corpus_id`.
 
-3. **Fine-tuning** (`fine_tuning/train.py`) — Applies LoRA adapters to Whisper-small (`q_proj`, `v_proj`; r=32, alpha=64), uses a custom weighted sampler that oversamples code-switched 3×, high-switch-point samples a further 2× (6× total), and undersamples monolingual to 50%. Trains via HuggingFace `Seq2SeqTrainer` with FP16, AdamW 8-bit, and WandB logging. `build_training_args()` is shared with the Colab notebook — do not duplicate it there.
+3. **Evaluation** (`evaluation/baseline_eval.py` + `evaluation/metrics.py`) — Reads a frozen split,
+   loads all three baseline models, transcribes the test set, computes WER/CER stratified by segment type, and categorizes failures into 5 types: `SUBSTITUTION_SWITCH`, `DELETION_PROPER_NOUN`, `SUBSTITUTION_NUMBER`, `LANGUAGE_CONFUSION`, `INSERTION_FILLER`.
+
+4. **Fine-tuning** (`fine_tuning/train.py`) — Reads the frozen `train`/`validation` splits and
+   applies LoRA adapters to Whisper-small (`q_proj`, `v_proj`; r=32, alpha=64), uses a custom weighted sampler that oversamples code-switched 3×, high-switch-point samples a further 2× (6× total), and undersamples monolingual to 50%. Trains via HuggingFace `Seq2SeqTrainer` with FP16, AdamW 8-bit, and WandB logging. `build_training_args()` is shared with the Colab notebook — do not duplicate it there.
 
 ## Known Defects (do not build on these without reading)
 
 The published results are **not** currently reproducible or valid as a comparison. Before
 changing anything in the eval or data path, read `README.md` → Known Limitations. Summary:
 
-- **Baselines and the fine-tuned model were scored on different test sets** — the headline
-  "41% reduction" is unsupported and has been retracted in all docs.
+- ~~**Baselines and the fine-tuned model were scored on different test sets**~~ — **fixed.**
+  Evaluation and training now read a frozen content-addressed corpus (`data/corpus.py`,
+  `data/corpus/`); results carry the `corpus_id` of the samples they were scored on, and both
+  `run_all_baselines` and `analysis/report.py` refuse to compare mismatched ids. The published
+  numbers still predate this and remain retracted until every model is re-run on one split.
 - **`_make_cs_sample` does not produce code-switching** — it concatenates a whole Tamil
   utterance and a whole English utterance from different corpora, and hardcodes
   `switch_count=1`. Channel change is confounded with the label.
@@ -82,11 +99,17 @@ changing anything in the eval or data path, read `README.md` → Known Limitatio
   falling back to base Whisper-small while still reporting `/health` 200. A clone-based deploy
   silently serves the un-finetuned model.
 
-The roadmap for fixing these is a frozen content-addressed corpus, corpus-level + script-normalized
-WER, a real-speech eval set, and intra-sentential synthesis. Do not publish new numbers from the
-current pipeline.
+The remaining roadmap is corpus-level + script-normalized WER, an alignment-driven failure
+taxonomy, intra-sentential synthesis, and a real-speech eval set. Do not publish new numbers
+from the current pipeline.
+
+Note on synthesis: fixing `_make_cs_sample` changes the audio and therefore every `uid`. It must
+land as a new frozen corpus, not as an edit to the existing one.
 
 ### Key Design Decisions
+- **Frozen corpus over rebuild-on-run** — a seeded split is only reproducible against a fixed input
+  pool, so any code path that rebuilds before scoring can silently change the test set. The corpus
+  is built once and addressed by content thereafter.
 - **Streaming dataset loading** — IndicVoices is large; `load_indicvoices_tamil()` uses `streaming=True` to avoid downloading the full corpus.
 - **Segment-type stratification** — Both the train/val/test split and the training sampler are stratified by segment type to ensure code-switched samples are represented despite being a minority class.
 - **LoRA on attention only** — Only `q_proj`/`v_proj` are adapted; encoder, decoder embeddings, and LM head are frozen, keeping trainable parameters small.

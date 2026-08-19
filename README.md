@@ -96,7 +96,13 @@ they are documented here because the results should not be read without them.
 model was scored on a split from a 1500-sample build. The split is stratified with a fixed seed,
 but a different input pool yields a different test set. Any cross-row comparison in the results
 table — including the previously headlined "41% reduction" — is therefore unsupported.
-*Fix in progress: a frozen, content-addressed corpus with a git-pinned test-set UID list.*
+
+**Fixed (mechanism only; the numbers above still predate it).** Evaluation and training no
+longer build a dataset. They read a frozen corpus (`data/corpus/`) in which every sample has a
+content-addressed `uid` and every split a `corpus_id`. Each results file records the `corpus_id`
+of the samples it was scored on, and both `run_all_baselines` and `analysis/report.py` refuse to
+produce a comparison across differing ids. The table above will be replaced once every model has
+been re-run against one frozen split — see [Corpus](#corpus).
 
 **2. The synthetic "code-switching" is not code-switching.**
 `_make_cs_sample()` concatenates a whole Tamil utterance, 0.1 s of silence, and a whole
@@ -185,12 +191,18 @@ The fine-tuned LoRA adapter (14MB) is published on HuggingFace:
 SPRINGLab/IndicVoices-R_Tamil  +  librispeech_asr/clean
         │
         ▼
-data/prepare_dataset.py
+data/prepare_dataset.py            (builder — run once, via data.corpus)
   • Resample to 16kHz mono, trim segments to 2–8s
   • Synthetic code-switching: Tamil + 0.1s silence + English
   • Tag: monolingual_tamil | monolingual_english | code_switched
   • Target mix: 40% CS, 35% Tamil, 25% English
   • Stratified 80/10/10 split
+        │
+        ▼
+data/corpus.py  →  data/corpus/           (frozen, content-addressed)
+  • uid      = sha256(pcm16 bytes + transcript)
+  • corpus_id = sha256(sorted uids of a split)
+  • manifest.json + splits/*.json in git; audio/ gitignored, hash-verified
         │
         ├──────────────────────────┐
         ▼                          ▼
@@ -235,6 +247,48 @@ evaluation/metrics.py               code_switched ×3
 
 ---
 
+## Corpus
+
+Evaluation and training read a **frozen corpus**, not a fresh build. This exists because the
+previous pipeline rebuilt the dataset at run time and split it with `random_state=42`, which
+fixes the partition of whatever list it receives — so a 300-sample pool and a 1500-sample pool
+produced different test sets, and the resulting scores were tabulated as if they were comparable.
+
+```
+data/corpus/
+  manifest.json            git-tracked   provenance + one record per sample
+  splits/{train,validation,test}.json
+                           git-tracked   {"corpus_id": ..., "uids": [...]}
+  audio/<uid>.wav          gitignored    16 kHz mono PCM16
+```
+
+| Concept | Definition | Answers |
+|---|---|---|
+| `uid` | `sha256(pcm16 bytes + transcript)[:16]` | is this the same sample? |
+| `corpus_id` | `sha256(sorted uids)[:16]` | were these models scored on the same data? |
+
+Audio is not committed (~150 MB at 1500 samples). The manifest carries a per-file `sha256`, so a
+rebuild elsewhere is verified rather than trusted:
+
+```bash
+python -m data.corpus freeze --size 1500   # build; refuses to overwrite without --force
+python -m data.corpus verify               # re-hash every wav, check split disjointness
+python -m data.corpus info                 # corpus_id per split, pinned dataset revisions
+```
+
+The manifest pins the HuggingFace revision of each source dataset. A rebuild that does not
+reproduce the committed `corpus_id` is a finding, not a nuisance — `notebooks/colab_finetune.ipynb`
+raises rather than training on a corpus that drifted.
+
+Three checks enforce this downstream, so the original defect cannot recur silently:
+
+- `evaluate_model` stamps `corpus_id` (the samples actually scored) and `split_corpus_id` (the
+  full split they came from) into every `results/*_wer.json`.
+- `run_all_baselines` leaves `baseline_wer_all.json` untouched if the models disagree.
+- `analysis/report.py` prints a STOP banner and exits non-zero on mismatched or missing ids.
+
+---
+
 ## Setup
 
 ```bash
@@ -251,10 +305,12 @@ Run as modules (`python -m`), not as scripts — `python evaluation/baseline_eva
 resolve its own package imports.
 
 ```bash
-# 1. Prepare dataset (streams from HuggingFace, no full download)
-python -m data.prepare_dataset
+# 1. Build the frozen corpus (streams from HuggingFace, writes data/corpus/)
+python -m data.corpus freeze --size 1500
+python -m data.corpus verify      # re-hashes every wav; must exit 0
+python -m data.corpus info        # corpus_id per split, provenance, counts
 
-# 2. Baseline evaluation  (--dry-run lists models without writing anything)
+# 2. Baseline evaluation  (--dry-run lists models and the corpus, writes nothing)
 python -m evaluation.baseline_eval --dry-run
 python -m evaluation.baseline_eval
 
@@ -286,7 +342,8 @@ python -m analysis.report
 ## Repository Structure
 
 ```
-data/               Dataset download, preprocessing, and split logic
+data/               Corpus builder (prepare_dataset.py) and the frozen
+                    content-addressed corpus (corpus.py, corpus/)
 evaluation/         Baseline model evaluation and failure analysis metrics
 fine_tuning/        LoRA fine-tuning script and config
 analysis/           Failure taxonomy reports and comparison summaries

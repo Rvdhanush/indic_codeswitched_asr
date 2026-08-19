@@ -9,6 +9,9 @@ checkpoints/
 wandb/
 *.log
 data/processed/
+# Frozen corpus: audio is too large for git. The manifest and split files
+# under data/corpus/ ARE tracked - they are what makes results comparable.
+data/corpus/audio/
 .pytest_cache/
 .venv/
 venv/

@@ -7,12 +7,16 @@ Tests only the pure processing functions — no HuggingFace downloads required.
 import numpy as np
 import pytest
 from data.prepare_dataset import (
+    _build_sample,
+    _make_cs_sample,
     _resample,
     _trim_to_window,
-    tag_segment_type,
+    build_provenance,
     count_switch_points,
     detect_language_mix,
     preprocess_sample,
+    resolve_dataset_revision,
+    tag_segment_type,
 )
 
 TARGET_SR = 16_000
@@ -197,3 +201,87 @@ class TestPreprocessSample:
         result = preprocess_sample(sample)
         assert result is not None
         assert result["transcript"] == "hello world this is a test"
+
+
+# ---------------------------------------------------------------------------
+# Provenance
+#
+# The frozen corpus is only reproducible if the manifest records what produced
+# it. These check the record is complete, not that a rebuild succeeds.
+# ---------------------------------------------------------------------------
+
+class TestBuildProvenance:
+    def test_records_both_source_revisions(self):
+        prov = build_provenance(tamil_revision="aaa111", english_revision="bbb222")
+        assert prov["sources"]["tamil"]["revision"] == "aaa111"
+        assert prov["sources"]["english"]["revision"] == "bbb222"
+
+    def test_names_both_datasets(self):
+        prov = build_provenance()
+        assert prov["sources"]["tamil"]["dataset"] == "SPRINGLab/IndicVoices-R_Tamil"
+        assert prov["sources"]["english"]["dataset"] == "librispeech_asr"
+
+    def test_unpinned_revisions_are_explicit_nulls(self):
+        prov = build_provenance()
+        assert prov["sources"]["tamil"]["revision"] is None
+
+    def test_records_the_builder_constants(self):
+        prov = build_provenance(size=1500)
+        builder = prov["builder"]
+        assert builder["requested_size"] == 1500
+        for key in ("min_duration_s", "max_duration_s", "silence_s", "target_sr",
+                    "n_code_switched", "n_mono_tamil", "n_mono_english"):
+            assert key in builder
+
+    def test_records_the_split_parameters(self):
+        prov = build_provenance(train_ratio=0.8, val_ratio=0.1)
+        assert prov["split"] == {
+            "train_ratio": 0.8,
+            "val_ratio": 0.1,
+            "random_state": 42,
+            "stratify_by": "segment_type",
+        }
+
+    def test_is_json_serialisable(self):
+        import json
+        json.dumps(build_provenance(size=10))
+
+
+class TestResolveDatasetRevision:
+    def test_returns_none_for_a_nonexistent_repo(self):
+        """Offline or missing repo must degrade, not raise, so the build can
+        proceed unpinned and say so."""
+        assert resolve_dataset_revision("this-org/does-not-exist-xyz") is None
+
+
+# ---------------------------------------------------------------------------
+# Per-sample source provenance
+# ---------------------------------------------------------------------------
+
+class TestSampleSource:
+    def test_build_sample_carries_source(self):
+        audio = np.zeros(TARGET_SR, dtype=np.float32)
+        src = {"dataset": "d", "revision": "r", "stream_index": 7}
+        sample = _build_sample(audio, "hello world", "monolingual_english", source=src)
+        assert sample["source"] == src
+
+    def test_source_defaults_to_none(self):
+        audio = np.zeros(TARGET_SR, dtype=np.float32)
+        sample = _build_sample(audio, "hello world", "monolingual_english")
+        assert sample["source"] is None
+
+    def test_cs_sample_records_both_halves(self):
+        seg_ta = {
+            "audio": np.zeros(TARGET_SR, dtype=np.float32),
+            "transcript": "tamil text",
+            "source": {"dataset": "ta", "revision": "r1", "stream_index": 1},
+        }
+        seg_en = {
+            "audio": np.zeros(TARGET_SR, dtype=np.float32),
+            "transcript": "english text",
+            "source": {"dataset": "en", "revision": "r2", "stream_index": 2},
+        }
+        sample = _make_cs_sample(seg_ta, seg_en)
+        assert sample["source"]["tamil"]["dataset"] == "ta"
+        assert sample["source"]["english"]["dataset"] == "en"
+        assert sample["segment_type"] == "code_switched"

@@ -50,6 +50,14 @@ MAX_AUDIO_S     = 30.0      # hard cap on any single sample
 SILENCE_S       = 0.1
 DATA_DIR        = Path("data/processed")
 
+# Source dataset identity. Pinned into the frozen corpus manifest so a rebuild
+# can be checked against the corpus it claims to reproduce.
+TAMIL_DATASET   = "SPRINGLab/IndicVoices-R_Tamil"
+TAMIL_SPLIT     = "train"
+ENGLISH_DATASET = "librispeech_asr"
+ENGLISH_CONFIG  = "clean"
+ENGLISH_SPLIT   = "train.100"
+
 # Target counts
 N_CODE_SWITCHED      = 80
 N_MONO_TAMIL         = 70
@@ -69,6 +77,70 @@ def authenticate_hf():
         raise ValueError("HF_TOKEN not set. Add it to your .env file.")
     login(token=HF_TOKEN)
     logger.info("HuggingFace authentication successful.")
+
+
+def resolve_dataset_revision(repo_id: str) -> Optional[str]:
+    """
+    Resolve a dataset repo to its current commit sha.
+
+    Streaming order is only reproducible against a fixed revision, so the sha
+    is recorded in the corpus manifest. Returns None if the hub is unreachable,
+    in which case the build proceeds unpinned and says so.
+    """
+    try:
+        from huggingface_hub import dataset_info
+        return dataset_info(repo_id, token=HF_TOKEN).sha
+    except Exception as e:
+        logger.warning("Could not resolve revision for %s: %s", repo_id, e)
+        return None
+
+
+def build_provenance(
+    tamil_revision: Optional[str] = None,
+    english_revision: Optional[str] = None,
+    size: Optional[int] = None,
+    train_ratio: float = 0.8,
+    val_ratio: float = 0.1,
+) -> dict:
+    """
+    Everything needed to attempt a byte-identical rebuild: source revisions,
+    the filtering and concatenation constants, and the split parameters.
+    Recorded verbatim into data/corpus/manifest.json.
+    """
+    return {
+        "sources": {
+            "tamil": {
+                "dataset": TAMIL_DATASET,
+                "split": TAMIL_SPLIT,
+                "revision": tamil_revision,
+            },
+            "english": {
+                "dataset": ENGLISH_DATASET,
+                "config": ENGLISH_CONFIG,
+                "split": ENGLISH_SPLIT,
+                "revision": english_revision,
+            },
+        },
+        "builder": {
+            "requested_size": size,
+            "n_code_switched": N_CODE_SWITCHED,
+            "n_mono_tamil": N_MONO_TAMIL,
+            "n_mono_english": N_MONO_ENGLISH,
+            "oversample_factor": _OVERSAMPLE,
+            "target_sr": TARGET_SR,
+            "min_duration_s": MIN_DURATION_S,
+            "max_duration_s": MAX_DURATION_S,
+            "max_audio_s": MAX_AUDIO_S,
+            "silence_s": SILENCE_S,
+            "synthesis": "whole-utterance concatenation (tamil + silence + english)",
+        },
+        "split": {
+            "train_ratio": train_ratio,
+            "val_ratio": val_ratio,
+            "random_state": 42,
+            "stratify_by": "segment_type",
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -142,21 +214,22 @@ def count_switch_points(text: str) -> int:
 # Source loaders
 # ---------------------------------------------------------------------------
 
-def _load_tamil_segments(n: int) -> list:
+def _load_tamil_segments(n: int, revision: Optional[str] = None) -> list:
     """
     Load n valid Tamil segments from SPRINGLab/IndicVoices-R_Tamil.
     Each segment is 2–8 seconds after resampling to 16kHz.
-    Returns list of {"audio": np.ndarray, "transcript": str}.
+    Returns list of {"audio": np.ndarray, "transcript": str, "source": dict}.
     """
     logger.info(f"Loading {n} Tamil segments from IndicVoices-R_Tamil...")
     ds = load_dataset(
-        "SPRINGLab/IndicVoices-R_Tamil",
-        split="train",
+        TAMIL_DATASET,
+        split=TAMIL_SPLIT,
         streaming=True,
         token=HF_TOKEN,
+        revision=revision,
     )
     segments, skipped = [], 0
-    for sample in ds:
+    for stream_index, sample in enumerate(ds):
         if len(segments) >= n:
             break
         try:
@@ -176,7 +249,15 @@ def _load_tamil_segments(n: int) -> list:
             if len(transcript) < 3:
                 skipped += 1
                 continue
-            segments.append({"audio": audio, "transcript": transcript})
+            segments.append({
+                "audio": audio,
+                "transcript": transcript,
+                "source": {
+                    "dataset": TAMIL_DATASET,
+                    "revision": revision,
+                    "stream_index": stream_index,
+                },
+            })
         except Exception as e:
             logger.debug(f"Tamil sample skipped: {e}")
             skipped += 1
@@ -184,22 +265,23 @@ def _load_tamil_segments(n: int) -> list:
     return segments
 
 
-def _load_english_segments(n: int) -> list:
+def _load_english_segments(n: int, revision: Optional[str] = None) -> list:
     """
     Load n valid English segments from librispeech_asr (clean/train.100).
     Each segment is 2–8 seconds.
-    Returns list of {"audio": np.ndarray, "transcript": str}.
+    Returns list of {"audio": np.ndarray, "transcript": str, "source": dict}.
     """
     logger.info(f"Loading {n} English segments from librispeech_asr...")
     ds = load_dataset(
-        "librispeech_asr",
-        "clean",
-        split="train.100",
+        ENGLISH_DATASET,
+        ENGLISH_CONFIG,
+        split=ENGLISH_SPLIT,
         streaming=True,
         trust_remote_code=True,
+        revision=revision,
     )
     segments, skipped = [], 0
-    for sample in ds:
+    for stream_index, sample in enumerate(ds):
         if len(segments) >= n:
             break
         try:
@@ -215,7 +297,15 @@ def _load_english_segments(n: int) -> list:
             if len(transcript) < 3:
                 skipped += 1
                 continue
-            segments.append({"audio": audio, "transcript": transcript})
+            segments.append({
+                "audio": audio,
+                "transcript": transcript,
+                "source": {
+                    "dataset": ENGLISH_DATASET,
+                    "revision": revision,
+                    "stream_index": stream_index,
+                },
+            })
         except Exception as e:
             logger.debug(f"English sample skipped: {e}")
             skipped += 1
@@ -242,7 +332,15 @@ def _make_cs_sample(tamil_seg: dict, english_seg: dict) -> dict:
     audio = audio[:max_samples]
 
     transcript = f"{tamil_seg['transcript']} {english_seg['transcript']}"
-    return _build_sample(audio, transcript, segment_type="code_switched", switch_count=1)
+    return _build_sample(
+        audio, transcript,
+        segment_type="code_switched",
+        switch_count=1,
+        source={
+            "tamil": tamil_seg.get("source"),
+            "english": english_seg.get("source"),
+        },
+    )
 
 
 def _build_sample(
@@ -250,6 +348,7 @@ def _build_sample(
     transcript: str,
     segment_type: str,
     switch_count: Optional[int] = None,
+    source: Optional[dict] = None,
 ) -> dict:
     """Package a processed audio array + transcript into the standard sample dict."""
     if switch_count is None:
@@ -264,6 +363,7 @@ def _build_sample(
         "lang_mix_ta":      lang_mix.get("ta", 0.0),
         "duration_seconds": round(_duration(audio), 2),
         "sample_rate":      TARGET_SR,
+        "source":           source,
     }
 
 
@@ -274,6 +374,8 @@ def _build_sample(
 def load_indicvoices_tamil(
     max_samples: int = 500,
     streaming: bool = True,          # kept for API compatibility
+    tamil_revision: Optional[str] = None,
+    english_revision: Optional[str] = None,
 ) -> list:
     """
     Build a mixed Tamil-English dataset with synthetic code-switching.
@@ -301,8 +403,8 @@ def load_indicvoices_tamil(
     n_ta_needed = int((n_ta + n_cs) * _OVERSAMPLE)
     n_en_needed = int((n_en + n_cs) * _OVERSAMPLE)
 
-    tamil_pool   = _load_tamil_segments(n_ta_needed)
-    english_pool = _load_english_segments(n_en_needed)
+    tamil_pool   = _load_tamil_segments(n_ta_needed, revision=tamil_revision)
+    english_pool = _load_english_segments(n_en_needed, revision=english_revision)
 
     if len(tamil_pool) < n_ta + n_cs:
         logger.warning(
@@ -331,12 +433,14 @@ def load_indicvoices_tamil(
 
     for seg in ta_for_mono:
         samples.append(_build_sample(
-            seg["audio"], seg["transcript"], "monolingual_tamil"
+            seg["audio"], seg["transcript"], "monolingual_tamil",
+            source=seg.get("source"),
         ))
 
     for seg in en_for_mono:
         samples.append(_build_sample(
-            seg["audio"], seg["transcript"], "monolingual_english"
+            seg["audio"], seg["transcript"], "monolingual_english",
+            source=seg.get("source"),
         ))
 
     # Build synthetic code-switched samples
@@ -427,6 +531,12 @@ def preprocess_sample(sample: dict):
 # Entry point
 # ---------------------------------------------------------------------------
 
+# NOTE: this entrypoint writes an *unfrozen* metadata dump to data/processed/,
+# which is gitignored and referenced by nothing. It is kept for ad-hoc
+# inspection of a build. The pipeline entrypoint is:
+#     python -m data.corpus freeze
+# which persists audio, assigns content-addressed uids, and writes the
+# git-tracked split manifests that evaluation and training read.
 if __name__ == "__main__":
     authenticate_hf()
 

@@ -1,6 +1,9 @@
 {
   "whisper_small": {
     "model_name": "openai/whisper-small",
+    "corpus_id": null,
+    "split": null,
+    "total_samples": 50,
     "overall_wer": 0.9761,
     "monolingual_tamil_wer": 0.9568,
     "monolingual_english_wer": 1.0089,
@@ -18,6 +21,9 @@
   },
   "whisper_tamil": {
     "model_name": "vasista22/whisper-tamil-medium",
+    "corpus_id": null,
+    "split": null,
+    "total_samples": 50,
     "overall_wer": 0.8294,
     "monolingual_tamil_wer": 0.6882,
     "monolingual_english_wer": 0.9802,
@@ -35,6 +41,9 @@
   },
   "wav2vec2_tamil": {
     "model_name": "Harveenchadha/vakyansh-wav2vec2-tamil-tam-250",
+    "corpus_id": null,
+    "split": null,
+    "total_samples": 50,
     "overall_wer": 1.0134,
     "monolingual_tamil_wer": 1.0313,
     "monolingual_english_wer": 1.0,
@@ -52,6 +61,9 @@
   },
   "whisper_small_lora": {
     "model_name": "checkpoints/best_model",
+    "corpus_id": null,
+    "split": null,
+    "total_samples": 150,
     "overall_wer": 0.6823,
     "monolingual_tamil_wer": 0.7692,
     "monolingual_english_wer": 0.5663,
@@ -68,6 +80,14 @@
     }
   },
   "_meta": {
+    "corpus_status": "unknown",
+    "corpus_ids": {
+      "whisper_small": null,
+      "whisper_tamil": null,
+      "wav2vec2_tamil": null,
+      "whisper_small_lora": null
+    },
+    "comparable": false,
     "shared_systemic_failures": [
       "LANGUAGE_CONFUSION",
       "SUBSTITUTION_SWITCH"

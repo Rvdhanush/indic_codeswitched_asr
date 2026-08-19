@@ -113,6 +113,42 @@ mixed-script ground truth training data, which does not currently exist at scale
 
 ---
 
+## Making the Retraction Impossible to Repeat
+
+The retraction above was the right call, but "be more careful next time" is not an
+engineering answer. The defect was structural: `evaluation/baseline_eval.py` and
+`fine_tuning/train.py` each built their own dataset at run time, streaming from
+HuggingFace and splitting with `random_state=42`. A fixed seed makes the *partition*
+reproducible, not the *input* -- hand it a 300-sample pool and a 1500-sample pool and you
+get two different test sets, with nothing anywhere recording that they differ.
+
+So the next change was not a better metric. It was making the test set a thing that can be
+named.
+
+**Content addressing.** Every sample now has `uid = sha256(pcm16 bytes + transcript)`, and
+every split a `corpus_id = sha256(sorted uids)`. Identity follows content, so the same clip
+carries the same id regardless of which build produced it. Two corpora that overlap are
+measurably overlapping; two that do not are measurably different. The corpus is built once
+(`python -m data.corpus freeze`) and read thereafter (`load_split`).
+
+**Stamping and refusing.** Every results file records the `corpus_id` of the samples it was
+actually scored on, plus the id of the full split they came from. `run_all_baselines` will
+not write `baseline_wer_all.json` if the rows disagree -- including rows carried over from
+an earlier run, which is exactly how the invalid comparison was assembled. `analysis/report.py`
+prints a STOP banner and exits non-zero rather than rendering a table nobody should read.
+
+**Verification over trust.** The audio (~150 MB) is too large for git, so `manifest.json`
+carries a per-file sha256 and `python -m data.corpus verify` re-hashes everything. The
+manifest pins the HuggingFace revision of each source dataset. A rebuild from those pinned
+revisions reproduced the committed `corpus_id` exactly on the first attempt, which is the
+evidence that "frozen" means something.
+
+What this does *not* do is make the published numbers valid. They predate the corpus and
+remain retracted. It makes the next set of numbers checkable, which is the precondition for
+publishing any.
+
+---
+
 ## What We Would Do With More Time and Data
 
 - **Real MUCS 2021 data.** Register with IIIT Hyderabad, obtain the actual Tamil-English

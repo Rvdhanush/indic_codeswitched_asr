@@ -258,21 +258,35 @@ def train(config_path: str = "fine_tuning/config.yaml"):
     processor, model = load_model_and_processor(config)
     model = apply_lora(model, config)
 
-    logger.info("Loading dataset splits...")
-    from data.prepare_dataset import (
-        authenticate_hf,
-        load_indicvoices_tamil,
-        build_dataset_splits
-    )
+    # Read the frozen corpus instead of rebuilding from HuggingFace. A rebuild
+    # here yields a different train/val/test partition than the one the
+    # baselines were scored on, which is how the retracted comparison happened.
+    logger.info("Loading frozen corpus splits...")
+    from data.corpus import load_split
 
-    authenticate_hf()
-    samples = load_indicvoices_tamil(
-        max_samples=config["data"].get("max_samples", 1500)
-    )
-    splits = build_dataset_splits(samples)
+    data_cfg = config["data"]
+    train_split = data_cfg.get("train_split", "train")
+    val_split = data_cfg.get("val_split", "validation")
 
-    train_samples = oversample_by_type(splits["train"], config)
-    val_samples = splits["validation"]
+    raw_train = load_split(train_split)
+    val_samples = load_split(val_split)
+
+    train_corpus_id = raw_train[0]["corpus_id"] if raw_train else None
+    val_corpus_id = val_samples[0]["corpus_id"] if val_samples else None
+    logger.info(
+        "Training on frozen split %r (%d samples, corpus_id %s)",
+        train_split, len(raw_train), train_corpus_id,
+    )
+    if wandb.run:
+        wandb.config.update(
+            {
+                "train_corpus_id": train_corpus_id,
+                "val_corpus_id": val_corpus_id,
+            },
+            allow_val_change=True,
+        )
+
+    train_samples = oversample_by_type(raw_train, config)
 
     logger.info("Preparing dataset for training...")
     train_data = prepare_dataset_for_training(train_samples, processor)

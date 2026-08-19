@@ -12,14 +12,19 @@ from transformers import (
     Wav2Vec2Processor,
     Wav2Vec2ForCTC
 )
-from datasets import load_dataset
 from tqdm import tqdm
 
+from data.corpus import (
+    CORPUS_DIR,
+    SPLIT_NAMES,
+    atomic_write_json,
+    compute_corpus_id,
+    load_split,
+    split_corpus_id,
+)
 from evaluation.metrics import (
-    compute_wer,
-    compute_cer,
     analyze_failures,
-    compute_stratified_wer
+    compute_stratified_wer,
 )
 
 load_dotenv()
@@ -184,6 +189,7 @@ def evaluate_model(
         samples = test_samples[:max_samples]
 
     per_sample_results = []
+    scored_uids = []
     errors = 0
 
     for sample in tqdm(samples, desc=f"Evaluating {model_key}"):
@@ -195,6 +201,8 @@ def evaluate_model(
             analysis["reference"] = reference
             analysis["hypothesis"] = hypothesis
             per_sample_results.append(analysis)
+            if sample.get("uid"):
+                scored_uids.append(sample["uid"])
         except Exception as e:
             logger.warning(f"Sample failed: {e}")
             errors += 1
@@ -202,10 +210,22 @@ def evaluate_model(
 
     stratified = compute_stratified_wer(per_sample_results)
 
+    # Identify the exact data this score describes. `corpus_id` covers the
+    # samples that actually contributed (a cap, or a sample that failed to
+    # transcribe, changes it); `split_corpus_id` is the full frozen split they
+    # were drawn from. Without these two fields a results file cannot honestly
+    # be compared to any other.
+    corpus_id = compute_corpus_id(scored_uids) if scored_uids else None
+    split_names = {s.get("split") for s in samples if s.get("split")}
+    split_ids = {s.get("corpus_id") for s in samples if s.get("corpus_id")}
+
     result = {
         "model_name": model_name,
         "model_key": model_key,
         "device": DEVICE,
+        "split": split_names.pop() if len(split_names) == 1 else None,
+        "corpus_id": corpus_id,
+        "split_corpus_id": split_ids.pop() if len(split_ids) == 1 else None,
         "total_samples": len(per_sample_results),
         "errors": errors,
         "overall_wer": stratified["overall_wer"],
@@ -216,6 +236,8 @@ def evaluate_model(
     }
 
     logger.info(f"\n=== {model_key} Results ===")
+    logger.info(f"Corpus:             {result['corpus_id']} "
+                f"(split {result['split']}, {result['total_samples']} samples)")
     logger.info(f"Overall WER:        {result['overall_wer']}")
     logger.info(f"Monolingual Tamil:  {result['monolingual_tamil_wer']}")
     logger.info(f"Monolingual English:{result['monolingual_english_wer']}")
@@ -228,21 +250,11 @@ def evaluate_model(
     return result
 
 
-def _atomic_write_json(path: Path, payload: dict):
-    """
-    Write JSON via a temp file + os.replace so an interrupted or failing run
-    can never leave a truncated (or empty) results file behind.
-    """
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
-
-
 def run_all_baselines(
     test_samples: list,
     max_samples: Optional[int] = 100,
-    models_to_run: Optional[list] = None
+    models_to_run: Optional[list] = None,
+    results_dir: Optional[Path] = None,
 ):
     """
     Run all baseline models and save results.
@@ -254,6 +266,10 @@ def run_all_baselines(
     """
     if models_to_run is None:
         models_to_run = list(MODELS.keys())
+    # Resolved at call time, not import time, so tests and capped smoke runs can
+    # redirect output without overwriting the committed results.
+    results_dir = Path(results_dir) if results_dir else RESULTS_DIR
+    results_dir.mkdir(parents=True, exist_ok=True)
 
     unknown = [k for k in models_to_run if k not in MODELS]
     if unknown:
@@ -282,13 +298,13 @@ def run_all_baselines(
 
         all_results[model_key] = result
 
-        save_path = RESULTS_DIR / f"{model_key}_wer.json"
-        _atomic_write_json(save_path, result)
+        save_path = results_dir / f"{model_key}_wer.json"
+        atomic_write_json(save_path, result)
         logger.info(f"Saved results to {save_path}")
 
     # Never overwrite the combined file with an empty or partial result set —
     # a failed run must leave the previously committed results intact.
-    combined_path = RESULTS_DIR / "baseline_wer_all.json"
+    combined_path = results_dir / "baseline_wer_all.json"
     if not all_results:
         logger.error(
             "No model produced results; leaving %s untouched.", combined_path
@@ -306,8 +322,47 @@ def run_all_baselines(
         print_comparison_table(all_results)
         return all_results
 
-    _atomic_write_json(combined_path, all_results)
-    logger.info(f"\nAll results saved to {combined_path}")
+    # Merge into whatever is already there rather than replacing it. Running a
+    # single model used to rewrite the combined file down to one row, silently
+    # discarding the other models' results.
+    merged = {}
+    if combined_path.exists():
+        try:
+            with open(combined_path, "r", encoding="utf-8") as f:
+                merged = json.load(f)
+        except (OSError, ValueError) as e:
+            logger.error(
+                "Could not read %s (%s); leaving it untouched.", combined_path, e
+            )
+            print_comparison_table(all_results)
+            return all_results
+    malformed = [k for k, v in merged.items() if not isinstance(v, dict)]
+    if malformed:
+        logger.error(
+            "%s is malformed (non-object rows: %s); leaving it untouched.",
+            combined_path, malformed,
+        )
+        print_comparison_table(all_results)
+        return all_results
+
+    merged.update(all_results)
+
+    # The combined file is read as a comparison table. Rows scored on different
+    # data are exactly the defect this pipeline was retracted for, so refuse to
+    # write rather than produce a misleading artifact. This covers rows carried
+    # over from an earlier run, which is how the original comparison was formed.
+    ids = {k: r.get("corpus_id") for k, r in merged.items()}
+    if len(set(ids.values())) > 1:
+        logger.error(
+            "Refusing to write %s: rows were scored on different data. "
+            "corpus_id per model: %s. Re-run every model on one frozen split.",
+            combined_path, ids,
+        )
+        print_comparison_table(all_results)
+        return all_results
+
+    atomic_write_json(combined_path, merged)
+    logger.info("Wrote %d model(s) to %s", len(merged), combined_path)
 
     print_comparison_table(all_results)
     return all_results
@@ -317,6 +372,14 @@ def print_comparison_table(results: dict):
     """Print a clean WER comparison table to console."""
     print("\n" + "="*80)
     print("BASELINE WER COMPARISON")
+    ids = {r.get("corpus_id") for r in results.values()}
+    if len(ids) == 1:
+        cid = ids.pop()
+        print(f"corpus_id: {cid}  (all rows scored on the same samples)")
+    elif len(ids) > 1:
+        print("WARNING: rows were scored on DIFFERENT data and are not comparable.")
+        for key, r in results.items():
+            print(f"  {key:<20} corpus_id {r.get('corpus_id')}")
     print("="*80)
     print(f"{'Model':<20} {'Overall':>10} {'Mono-Tamil':>12} "
           f"{'Mono-English':>14} {'Code-Switch':>13}")
@@ -344,12 +407,23 @@ def main(argv: Optional[list] = None) -> int:
         help=f"Model keys to run (default: all). Choices: {sorted(MODELS)}",
     )
     parser.add_argument(
-        "--dataset-samples", type=int, default=300,
-        help="Total samples to build before splitting (default: 300).",
+        "--split", default="test", choices=list(SPLIT_NAMES),
+        help="Frozen corpus split to evaluate (default: test).",
+    )
+    parser.add_argument(
+        "--corpus-dir", type=Path, default=CORPUS_DIR,
+        help=f"Frozen corpus root (default: {CORPUS_DIR}).",
     )
     parser.add_argument(
         "--max-samples", type=int, default=None,
-        help="Cap evaluated test samples (default: no cap).",
+        help="Cap evaluated test samples (default: no cap). A capped run scores "
+             "a subset, so it gets its own corpus_id and is not comparable to a "
+             "full run. Pair it with --results-dir.",
+    )
+    parser.add_argument(
+        "--results-dir", type=Path, default=None,
+        help=f"Where to write results (default: {RESULTS_DIR}). Point smoke runs "
+             f"elsewhere so they do not overwrite committed results.",
     )
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -368,27 +442,36 @@ def main(argv: Optional[list] = None) -> int:
         print(f"Would evaluate {len(models_to_run)} model(s):")
         for key in models_to_run:
             print(f"  {key:<16} {MODELS[key]['name']}")
+        try:
+            cid = split_corpus_id(args.split, corpus_dir=args.corpus_dir)
+            print(f"On split {args.split!r} of {args.corpus_dir} (corpus_id {cid})")
+        except FileNotFoundError as e:
+            print(f"No frozen corpus: {e}")
         print("Dry run — no files written.")
         return 0
 
-    from data.prepare_dataset import (
-        authenticate_hf,
-        load_indicvoices_tamil,
-        build_dataset_splits
+    # Read the frozen split rather than rebuilding from HuggingFace. Rebuilding
+    # here is what produced two different test sets for two sets of models.
+    try:
+        test_samples = load_split(args.split, corpus_dir=args.corpus_dir)
+    except FileNotFoundError as e:
+        logger.error("%s", e)
+        return 1
+
+    logger.info(
+        "Loaded %d samples from frozen split %r (corpus_id %s)",
+        len(test_samples), args.split,
+        test_samples[0]["corpus_id"] if test_samples else "empty",
     )
-
-    authenticate_hf()
-    samples = load_indicvoices_tamil(max_samples=args.dataset_samples)
-    splits = build_dataset_splits(samples)
-    test_samples = splits["test"]
-
-    logger.info(f"Test set size: {len(test_samples)} samples")
 
     results = run_all_baselines(
         test_samples,
         max_samples=args.max_samples,
         models_to_run=models_to_run,
+        results_dir=args.results_dir,
     )
+    if len({r.get("corpus_id") for r in results.values()}) > 1:
+        return 1
     return 0 if len(results) == len(models_to_run) else 1
 
 
