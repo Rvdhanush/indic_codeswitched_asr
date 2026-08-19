@@ -1,0 +1,1080 @@
+<title>Tanglish ASR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Speech recognition that survives Tamil-English code-switching. Failure analysis, a five-category error taxonomy, and a 14 MB LoRA adapter.">
+
+<style>
+/* ===========================================================================
+   TANGLISH ASR
+
+   Dark studio ground. The subject is a waveform carrying two languages at
+   once, so the palette is a spectrogram: saffron for Tamil, cyan for English.
+   Those two hues mean the same thing everywhere on the page - in the hero
+   waveform, in the sentence, in the chart, in the taxonomy. Nothing else is
+   allowed to be colorful.
+=========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  --bg:        #06080B;
+  --bg-2:      #0A0E14;
+  --panel:     #0E141C;
+  --panel-2:   #131A24;
+  --edge:      rgba(255,255,255,0.07);
+  --edge-2:    rgba(255,255,255,0.13);
+  --sheen:     rgba(255,255,255,0.05);
+
+  --fg:        #F4F7FA;
+  --fg-2:      #A3B1C0;
+  --fg-3:      #6B7A8B;
+
+  --ta:        #F5A524;   /* Tamil  */
+  --ta-glow:   rgba(245,165,36,0.16);
+  --en:        #57C7E3;   /* English */
+  --en-glow:   rgba(87,199,227,0.16);
+  --bad:       #F0616D;
+  --good:      #3DD68C;
+
+  --sans:  -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
+           "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+           Georgia, serif;
+  --mono:  ui-monospace, "SFMono-Regular", "Cascadia Mono", "JetBrains Mono",
+           Menlo, Consolas, monospace;
+  --tamil: "Nirmala UI", Latha, "Noto Sans Tamil", "Tamil MN", sans-serif;
+
+  --shell: 1180px;
+  --gutter: clamp(1.25rem, 5vw, 4rem);
+  --r: 14px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg:      #FBFBFC;
+    --bg-2:    #F4F6F8;
+    --panel:   #FFFFFF;
+    --panel-2: #F7F9FA;
+    --edge:    rgba(10,16,24,0.10);
+    --edge-2:  rgba(10,16,24,0.18);
+    --sheen:   rgba(10,16,24,0.02);
+    --fg:      #0A1018;
+    --fg-2:    #435565;
+    --fg-3:    #6C7C8C;
+    --ta:      #B06B00;
+    --ta-glow: rgba(176,107,0,0.11);
+    --en:      #08748F;
+    --en-glow: rgba(8,116,143,0.11);
+    --bad:     #C3303E;
+    --good:    #12794F;
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg:      #FBFBFC;
+  --bg-2:    #F4F6F8;
+  --panel:   #FFFFFF;
+  --panel-2: #F7F9FA;
+  --edge:    rgba(10,16,24,0.10);
+  --edge-2:  rgba(10,16,24,0.18);
+  --sheen:   rgba(10,16,24,0.02);
+  --fg:      #0A1018;
+  --fg-2:    #435565;
+  --fg-3:    #6C7C8C;
+  --ta:      #B06B00;
+  --ta-glow: rgba(176,107,0,0.11);
+  --en:      #08748F;
+  --en-glow: rgba(8,116,143,0.11);
+  --bad:     #C3303E;
+  --good:    #12794F;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 16.5px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+/* Film grain. Keeps large flat fields from looking like dead pixels. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.wrap { max-width: var(--shell); margin-inline: auto; padding-inline: var(--gutter); }
+.narrow { max-width: 60ch; }
+
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--ta); outline-offset: 3px; border-radius: 4px; }
+
+h1, h2, h3, h4 {
+  margin: 0;
+  font-weight: 640;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+  line-height: 1.08;
+}
+
+h1 { font-size: clamp(2.75rem, 7.2vw, 5.25rem); letter-spacing: -0.05em; }
+h2 { font-size: clamp(1.85rem, 4.2vw, 3rem); letter-spacing: -0.042em; }
+h3 { font-size: 1.0625rem; letter-spacing: -0.02em; line-height: 1.35; }
+
+p { margin: 0 0 1.15rem; }
+p:last-child { margin-bottom: 0; }
+
+.lede { font-size: clamp(1.0625rem, 1.9vw, 1.3125rem); color: var(--fg-2); line-height: 1.55; }
+.dim  { color: var(--fg-2); }
+.small{ font-size: 0.9375rem; color: var(--fg-3); }
+.ta-text { font-family: var(--tamil); }
+
+/* --- chips / eyebrows ---------------------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+  padding: 0.4rem 0.85rem 0.4rem 0.65rem;
+  border: 1px solid var(--edge);
+  border-radius: 100px;
+  background: var(--panel);
+}
+
+.chip .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ta);
+  box-shadow: 0 0 0 3px var(--ta-glow);
+}
+
+.kicker {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  margin: 0 0 1.1rem;
+}
+
+/* --- nav ----------------------------------------------------------------- */
+
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.25s, background 0.25s;
+}
+.nav.stuck {
+  border-bottom-color: var(--edge);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(16px) saturate(160%);
+}
+.nav .wrap { display: flex; align-items: center; gap: 2rem; min-height: 68px; }
+
+.logo {
+  display: flex; align-items: center; gap: 0.6rem;
+  text-decoration: none; font-weight: 640; letter-spacing: -0.03em;
+  font-size: 1.0625rem;
+}
+.logo .glyph {
+  font-family: var(--tamil);
+  color: var(--ta);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.nav .links { display: flex; gap: 1.75rem; margin-left: auto; font-size: 0.9375rem; }
+.nav .links a { color: var(--fg-2); text-decoration: none; transition: color 0.15s; }
+.nav .links a:hover { color: var(--fg); }
+
+@media (max-width: 780px) { .nav .links { display: none; } }
+
+/* --- buttons ------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-family: var(--sans); font-size: 0.9375rem; font-weight: 560;
+  letter-spacing: -0.01em;
+  padding: 0.7rem 1.25rem;
+  border-radius: 9px;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: transform 0.15s, box-shadow 0.2s, background 0.2s, border-color 0.2s;
+  white-space: nowrap;
+}
+.btn:active { transform: translateY(1px); }
+
+.btn-primary {
+  background: var(--ta);
+  color: #10161E;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.25) inset, 0 8px 24px -8px var(--ta);
+}
+.btn-primary:hover { box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset, 0 12px 32px -8px var(--ta); }
+
+.btn-ghost { border-color: var(--edge-2); color: var(--fg); background: var(--panel); }
+.btn-ghost:hover { border-color: var(--fg-3); background: var(--panel-2); }
+
+.btn-sm { padding: 0.5rem 0.95rem; font-size: 0.875rem; }
+
+/* --- hero ---------------------------------------------------------------- */
+
+.hero { position: relative; padding-top: clamp(3.5rem, 8vw, 6.5rem); padding-bottom: 0; }
+
+.hero::before {
+  content: "";
+  position: absolute;
+  top: -20%; left: 50%; transform: translateX(-50%);
+  width: min(1400px, 150vw); height: 780px;
+  background:
+    radial-gradient(58% 46% at 32% 42%, var(--ta-glow), transparent 68%),
+    radial-gradient(52% 42% at 72% 56%, var(--en-glow), transparent 68%);
+  filter: blur(20px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero .wrap { position: relative; z-index: 1; }
+
+.hero h1 { margin: 1.5rem 0 1.5rem; max-width: 15ch; }
+.hero h1 em { font-style: normal; color: var(--ta); }
+.hero .lede { max-width: 54ch; }
+
+.cta-row { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2rem; }
+
+/* --- waveform module ----------------------------------------------------- */
+
+.signal {
+  position: relative; z-index: 1;
+  margin-top: clamp(3rem, 6vw, 4.5rem);
+  border-top: 1px solid var(--edge);
+  border-bottom: 1px solid var(--edge);
+  background:
+    linear-gradient(180deg, var(--panel) 0%, var(--bg-2) 100%);
+}
+
+.signal-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.75rem 1.5rem;
+  padding-block: 1.1rem;
+  border-bottom: 1px solid var(--edge);
+}
+
+.signal-head .label {
+  font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--fg-3);
+}
+
+.signal-head .legend { display: flex; gap: 1.25rem; margin-left: auto; }
+.signal-head .legend span {
+  display: flex; align-items: center; gap: 0.45rem;
+  font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--fg-2);
+}
+.signal-head .legend i { width: 18px; height: 3px; border-radius: 2px; display: block; }
+.signal-head .legend .i-ta { background: var(--ta); }
+.signal-head .legend .i-en { background: var(--en); }
+
+.canvas-hold { position: relative; padding-block: 1.5rem 0; }
+canvas { display: block; width: 100%; height: 168px; }
+
+@media (max-width: 640px) { canvas { height: 120px; } }
+
+/* word ribbon under the waveform */
+.ribbon {
+  display: flex;
+  gap: 2px;
+  padding-bottom: 1.75rem;
+  padding-top: 0.85rem;
+}
+.ribbon .seg {
+  padding: 0.55rem 0.7rem;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  line-height: 1.3;
+  text-align: center;
+  border: 1px solid transparent;
+  min-width: 0;
+}
+.ribbon .seg .who {
+  display: block;
+  font-family: var(--mono); font-size: 0.5625rem; letter-spacing: 0.14em;
+  text-transform: uppercase; opacity: 0.65; margin-bottom: 0.2rem;
+}
+.ribbon .seg.en { background: var(--en-glow); color: var(--en); border-color: color-mix(in srgb, var(--en) 26%, transparent); }
+.ribbon .seg.tam { background: var(--ta-glow); color: var(--ta); border-color: color-mix(in srgb, var(--ta) 26%, transparent); }
+
+@media (max-width: 700px) {
+  .ribbon { flex-wrap: wrap; }
+  .ribbon .seg { flex: 1 1 auto; }
+}
+
+/* --- stat band ----------------------------------------------------------- */
+
+.stats { border-bottom: 1px solid var(--edge); background: var(--bg-2); }
+.stats .wrap {
+  display: grid; gap: 1px;
+  grid-template-columns: repeat(2, 1fr);
+  background: var(--edge);
+  padding-inline: 0;
+  max-width: none;
+}
+@media (min-width: 860px) { .stats .wrap { grid-template-columns: repeat(4, 1fr); } }
+
+.stat {
+  background: var(--bg-2);
+  padding: clamp(1.5rem, 3vw, 2.25rem) clamp(1.25rem, 3vw, 2rem);
+}
+.stat .n {
+  font-size: clamp(2rem, 4.5vw, 2.9rem);
+  font-weight: 650; letter-spacing: -0.05em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 0.6rem;
+}
+.stat.hi .n { color: var(--ta); }
+.stat .k {
+  font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--fg-3); margin-bottom: 0.4rem;
+}
+.stat .s { font-size: 0.875rem; color: var(--fg-2); line-height: 1.45; }
+
+/* --- generic section ----------------------------------------------------- */
+
+section.band { padding-block: clamp(4.5rem, 10vw, 8rem); }
+section.band + section.band { border-top: 1px solid var(--edge); }
+
+.head-row { display: grid; gap: 2rem; align-items: end; margin-bottom: 3rem; }
+@media (min-width: 900px) { .head-row { grid-template-columns: 1.15fr 1fr; } }
+
+/* --- transcript cards ---------------------------------------------------- */
+
+.cards { display: grid; gap: 1.25rem; }
+@media (min-width: 900px) { .cards { grid-template-columns: 1fr 1fr; } }
+
+.card {
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  padding: 1.75rem;
+  box-shadow: 0 1px 0 var(--sheen) inset, 0 24px 48px -32px rgba(0,0,0,0.9);
+  display: flex; flex-direction: column;
+}
+
+.card > header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; margin-bottom: 1.35rem;
+}
+
+.pill {
+  font-family: var(--mono); font-size: 0.625rem; letter-spacing: 0.1em;
+  text-transform: uppercase; padding: 0.3rem 0.6rem; border-radius: 100px;
+  border: 1px solid currentColor; white-space: nowrap;
+}
+.pill.bad { color: var(--bad); }
+.pill.good { color: var(--good); }
+
+.out {
+  font-family: var(--tamil);
+  font-size: 1.0625rem; line-height: 1.9; color: var(--fg-2);
+  margin: 0; word-break: break-word; flex: 1;
+}
+.out .loop { color: var(--bad); }
+.out .loop span { opacity: 0; animation: bleed 0.35s ease forwards; }
+@keyframes bleed { to { opacity: 1; } }
+
+.card footer {
+  margin-top: 1.5rem; padding-top: 1.25rem;
+  border-top: 1px solid var(--edge);
+  font-size: 0.9375rem; color: var(--fg-3);
+}
+
+/* --- chart --------------------------------------------------------------- */
+
+.chart { display: flex; flex-direction: column; gap: 1.1rem; margin-bottom: 3rem; }
+
+.bar-row { display: grid; grid-template-columns: minmax(120px, 190px) 1fr auto; gap: 1rem; align-items: center; }
+@media (max-width: 620px) { .bar-row { grid-template-columns: 1fr auto; } .bar-row .track { grid-column: 1 / -1; order: 3; } }
+
+.bar-row .who { font-size: 0.9375rem; color: var(--fg-2); letter-spacing: -0.01em; }
+.bar-row.win .who { color: var(--fg); font-weight: 600; }
+
+.track { height: 34px; background: var(--panel); border: 1px solid var(--edge); border-radius: 7px; overflow: hidden; }
+.fill {
+  height: 100%; width: 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--fg-3) 45%, transparent), color-mix(in srgb, var(--fg-3) 70%, transparent));
+  transition: width 1.1s cubic-bezier(0.16,1,0.3,1);
+}
+.bar-row.win .fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ta) 55%, transparent), var(--ta));
+  box-shadow: 0 0 28px -6px var(--ta);
+}
+.bar-row .val {
+  font-family: var(--mono); font-size: 0.9375rem; font-variant-numeric: tabular-nums;
+  color: var(--fg-2); min-width: 4ch; text-align: right;
+}
+.bar-row.win .val { color: var(--ta); font-weight: 600; }
+
+/* --- table --------------------------------------------------------------- */
+
+.tablecard {
+  border: 1px solid var(--edge); border-radius: var(--r);
+  background: var(--panel); overflow: hidden;
+}
+.scroller { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 660px; font-variant-numeric: tabular-nums; }
+thead th {
+  text-align: right; font-family: var(--mono); font-weight: 500;
+  font-size: 0.625rem; letter-spacing: 0.11em; text-transform: uppercase;
+  color: var(--fg-3); padding: 1rem 1.1rem; border-bottom: 1px solid var(--edge);
+  background: var(--panel-2); white-space: nowrap;
+}
+thead th:first-child { text-align: left; }
+tbody td { text-align: right; padding: 1.05rem 1.1rem; border-bottom: 1px solid var(--edge); color: var(--fg-2); font-size: 0.9375rem; }
+tbody tr:last-child td { border-bottom: none; }
+tbody td:first-child { text-align: left; color: var(--fg); }
+tbody tr.win { background: var(--ta-glow); }
+tbody tr.win td { color: var(--ta); font-weight: 600; }
+.sub { display: block; font-family: var(--mono); font-size: 0.6875rem; color: var(--fg-3); font-weight: 400; margin-top: 0.25rem; letter-spacing: 0.02em; }
+
+/* --- taxonomy / specs ---------------------------------------------------- */
+
+.grid-3 { display: grid; gap: 1.25rem; }
+@media (min-width: 760px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } }
+
+.grid-2 { display: grid; gap: 1.25rem; }
+@media (min-width: 760px) { .grid-2 { grid-template-columns: repeat(2, 1fr); } }
+
+.tile {
+  border: 1px solid var(--edge); border-radius: var(--r);
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+  padding: 1.6rem;
+  box-shadow: 0 1px 0 var(--sheen) inset;
+}
+.tile .idx {
+  font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.1em;
+  color: var(--fg-3); margin-bottom: 1.5rem; display: block;
+}
+.tile h3 { margin-bottom: 0.5rem; }
+.tile p { font-size: 0.9375rem; color: var(--fg-3); margin: 0; }
+
+.tile.flag { border-color: color-mix(in srgb, var(--ta) 30%, transparent); }
+.tile.flag h3 { color: var(--ta); }
+.tile.flag .idx { color: var(--ta); }
+
+.tile h3 code, .spec-line b { font-family: var(--mono); font-size: 0.9375em; }
+
+.spec-line {
+  display: flex; justify-content: space-between; gap: 1rem;
+  padding: 0.7rem 0; border-bottom: 1px solid var(--edge);
+  font-size: 0.9375rem;
+}
+.spec-line:last-child { border-bottom: none; padding-bottom: 0; }
+.spec-line span { color: var(--fg-3); }
+.spec-line b { color: var(--fg); font-weight: 600; }
+
+/* --- pull quote ---------------------------------------------------------- */
+
+.pull {
+  font-family: var(--serif);
+  font-size: clamp(1.375rem, 3vw, 2rem);
+  line-height: 1.35; letter-spacing: -0.015em;
+  color: var(--fg); max-width: 24ch; margin: 0;
+}
+.pull .hl { color: var(--ta); }
+
+/* --- closing CTA --------------------------------------------------------- */
+
+.close { position: relative; text-align: center; overflow: hidden; }
+.close::before {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(60% 90% at 50% 108%, var(--ta-glow), transparent 70%);
+  pointer-events: none;
+}
+.close .wrap { position: relative; }
+.close h2 { margin-bottom: 1.25rem; }
+.close .lede { margin-inline: auto; }
+.close .cta-row { justify-content: center; }
+
+/* --- footer -------------------------------------------------------------- */
+
+footer.foot { border-top: 1px solid var(--edge); padding-block: 2.5rem; }
+footer.foot .wrap { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: space-between; align-items: center; }
+footer.foot .meta { font-family: var(--mono); font-size: 0.75rem; color: var(--fg-3); letter-spacing: 0.02em; }
+footer.foot nav { display: flex; flex-wrap: wrap; gap: 1.5rem; font-size: 0.875rem; }
+footer.foot nav a { color: var(--fg-2); text-decoration: none; }
+footer.foot nav a:hover { color: var(--ta); }
+
+/* --- scroll reveal ------------------------------------------------------- */
+
+.rise { opacity: 0; transform: translateY(18px); transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.16,1,0.3,1); }
+.rise.in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .rise { opacity: 1; transform: none; transition: none; }
+  .out .loop span { opacity: 1; animation: none; }
+  .fill { transition: none; }
+}
+</style>
+
+<div class="nav" id="nav">
+  <div class="wrap">
+    <a class="logo" href="#top"><span class="glyph">த</span>Tanglish ASR</a>
+    <div class="links">
+      <a href="#failure">The failure</a>
+      <a href="#results">Results</a>
+      <a href="#taxonomy">Taxonomy</a>
+      <a href="#method">Method</a>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="https://github.com/Rvdhanush/indic_codeswitched_asr">GitHub</a>
+  </div>
+</div>
+
+<main id="top">
+
+  <!-- ===================== HERO ===================== -->
+  <section class="hero">
+    <div class="wrap">
+      <span class="chip"><span class="dot"></span>Tamil &times; English &middot; Code-switched ASR</span>
+      <h1>Speech that switches <em>mid&#8209;sentence</em>.</h1>
+      <p class="lede">
+        Urban Indian speech is Tanglish &mdash; Tamil and English braided inside one
+        utterance. Every production ASR system is trained on clean monolingual audio, so
+        every one of them breaks on it. This maps exactly where they break, then fixes it
+        with a 14&nbsp;MB adapter.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora">Get the adapter</a>
+        <a class="btn btn-ghost" href="#failure">See where it breaks</a>
+      </div>
+    </div>
+
+    <div class="signal">
+      <div class="wrap">
+        <div class="signal-head">
+          <span class="label">One utterance &middot; 4 switch points</span>
+          <span class="legend">
+            <span><i class="i-ta"></i>Tamil</span>
+            <span><i class="i-en"></i>English</span>
+          </span>
+        </div>
+      </div>
+      <div class="wrap canvas-hold">
+        <canvas id="wave" aria-label="Waveform of a Tamil-English code-switched utterance, coloured by language" role="img"></canvas>
+        <div class="ribbon" id="ribbon"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== STATS ===================== -->
+  <div class="stats">
+    <div class="wrap">
+      <div class="stat hi">
+        <div class="k">Code-switched WER</div>
+        <div class="n">&minus;41%</div>
+        <div class="s">0.964 &rarr; 0.564 against the Whisper-small baseline</div>
+      </div>
+      <div class="stat">
+        <div class="k">Parameters trained</div>
+        <div class="n">1.44%</div>
+        <div class="s">3.5&nbsp;M of 245&nbsp;M &mdash; attention projections only</div>
+      </div>
+      <div class="stat">
+        <div class="k">Adapter size</div>
+        <div class="n">14 MB</div>
+        <div class="s">Ships beside the base model, swappable at load</div>
+      </div>
+      <div class="stat">
+        <div class="k">Baselines mapped</div>
+        <div class="n">3</div>
+        <div class="s">Whisper, Whisper-Tamil, Wav2Vec2-Tamil</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== FAILURE ===================== -->
+  <section class="band" id="failure">
+    <div class="wrap">
+      <div class="head-row rise">
+        <div>
+          <p class="kicker">01 &mdash; The failure</p>
+          <h2>It doesn't mistranscribe.<br>It collapses.</h2>
+        </div>
+        <p class="dim">
+          Hit Whisper-small with an English word mid-Tamil-sentence and it does not return a
+          wrong English word. The decoder loses confidence, locks onto a high-probability
+          local pattern, and repeats it &mdash; here, one Tamil word, twenty-five times.
+        </p>
+      </div>
+
+      <div class="cards rise">
+        <article class="card">
+          <header>
+            <h3>Whisper-small &middot; baseline</h3>
+            <span class="pill bad">Repetition collapse</span>
+          </header>
+          <p class="out">
+            <span class="ta-text">மாற்றும் மீட்டிங்கு வர முடியுமா? நான் பிறகு 10 நிறுத்தில்</span>
+            <span class="ta-text loop" id="loop"></span>
+          </p>
+          <footer>Unusable. The utterance is lost the moment the language switches.</footer>
+        </article>
+
+        <article class="card">
+          <header>
+            <h3>Whisper-small + LoRA</h3>
+            <span class="pill good">Coherent</span>
+          </header>
+          <p class="out ta-text">
+            துமாரோம் மீட்டிங்கு வர முடியுமா ஆயில்பி டென்னுனெட்ஸ்லேட் ட்ராஃபிக் பிராவலம் இருக்கு
+          </p>
+          <footer>
+            No hallucination. Tamil is correct. English is heard correctly but rendered in
+            Tamil script &mdash; imperfect, and recoverable.
+          </footer>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== RESULTS ===================== -->
+  <section class="band" id="results">
+    <div class="wrap">
+      <div class="head-row rise">
+        <div>
+          <p class="kicker">02 &mdash; Results</p>
+          <h2>Word error rate on code-switched speech</h2>
+        </div>
+        <p class="dim">
+          Lower is better. Scoring is split by segment type &mdash; monolingual Tamil,
+          monolingual English, code-switched &mdash; because a single overall number hides the
+          penalty entirely.
+        </p>
+      </div>
+
+      <div class="chart rise" id="chart">
+        <div class="bar-row" data-v="0.999">
+          <div class="who">Wav2Vec2-Tamil</div>
+          <div class="track"><div class="fill"></div></div>
+          <div class="val">0.999</div>
+        </div>
+        <div class="bar-row" data-v="0.964">
+          <div class="who">Whisper-small</div>
+          <div class="track"><div class="fill"></div></div>
+          <div class="val">0.964</div>
+        </div>
+        <div class="bar-row" data-v="0.879">
+          <div class="who">Whisper-Tamil-medium</div>
+          <div class="track"><div class="fill"></div></div>
+          <div class="val">0.879</div>
+        </div>
+        <div class="bar-row win" data-v="0.564">
+          <div class="who">Whisper-small + LoRA</div>
+          <div class="track"><div class="fill"></div></div>
+          <div class="val">0.564</div>
+        </div>
+      </div>
+
+      <div class="tablecard rise">
+        <div class="scroller">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Model</th>
+                <th scope="col">Overall</th>
+                <th scope="col">Mono Tamil</th>
+                <th scope="col">Mono English</th>
+                <th scope="col">Code-switched</th>
+                <th scope="col">CS penalty</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Whisper-small<span class="sub">openai/whisper-small</span></td>
+                <td>0.976</td><td>0.957</td><td>1.009</td><td>0.964</td><td>0.98&times;</td>
+              </tr>
+              <tr>
+                <td>Whisper-Tamil-medium<span class="sub">vasista22 &middot; Tamil-specialised</span></td>
+                <td>0.829</td><td>0.688</td><td>0.980</td><td>0.879</td><td>1.05&times;</td>
+              </tr>
+              <tr>
+                <td>Wav2Vec2-Tamil<span class="sub">Harveenchadha/vakyansh</span></td>
+                <td>1.013</td><td>1.031</td><td>1.000</td><td>0.999</td><td>0.98&times;</td>
+              </tr>
+              <tr class="win">
+                <td>Whisper-small + LoRA<span class="sub">this work &middot; 14 MB</span></td>
+                <td>0.682</td><td>0.769</td><td>0.566</td><td>0.564</td><td>0.84&times;</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p class="small rise" style="margin-top:1.25rem;max-width:70ch">
+        <b style="color:var(--fg-2)">CS penalty</b> is code-switched WER over average monolingual WER.
+        Above 1.0 means the model is worse on mixed speech than on clean speech.
+        Whisper-Tamil-medium &mdash; larger and Tamil-specialised &mdash; is the one baseline that
+        degrades outright.
+      </p>
+    </div>
+  </section>
+
+  <!-- ===================== TAXONOMY ===================== -->
+  <section class="band" id="taxonomy">
+    <div class="wrap">
+      <div class="head-row rise">
+        <div>
+          <p class="kicker">03 &mdash; Taxonomy</p>
+          <h2>Errors get categorised, not counted</h2>
+        </div>
+        <p class="dim">
+          A WER number tells you a model is failing. It doesn't tell you what to do next.
+          Every error is sorted into one of five categories &mdash; and the two that dominate
+          are the same two across all three baselines.
+        </p>
+      </div>
+
+      <div class="grid-2 rise" style="margin-bottom:1.25rem">
+        <div class="tile flag">
+          <span class="idx">Systemic &middot; top-2 for every baseline</span>
+          <h3><code>SUBSTITUTION_SWITCH</code></h3>
+          <p>The transcription breaks at the boundary where the language changes.</p>
+        </div>
+        <div class="tile flag">
+          <span class="idx">Systemic &middot; top-2 for every baseline</span>
+          <h3><code>LANGUAGE_CONFUSION</code></h3>
+          <p>The word is heard correctly and written in the wrong script.</p>
+        </div>
+      </div>
+
+      <div class="grid-3 rise">
+        <div class="tile">
+          <span class="idx">Category 03</span>
+          <h3><code>DELETION_PROPER_NOUN</code></h3>
+          <p>A named entity is dropped from the output entirely.</p>
+        </div>
+        <div class="tile">
+          <span class="idx">Category 04</span>
+          <h3><code>SUBSTITUTION_NUMBER</code></h3>
+          <p>A number, date, or digit sequence comes out wrong.</p>
+        </div>
+        <div class="tile">
+          <span class="idx">Category 05</span>
+          <h3><code>INSERTION_FILLER</code></h3>
+          <p>A filler word appears that nobody said.</p>
+        </div>
+      </div>
+
+      <p class="pull rise" style="margin-top:3.5rem">
+        The same two failures top every architecture. That makes them
+        <span class="hl">blind spots in seq2seq decoding</span>, not bugs in any one model.
+      </p>
+    </div>
+  </section>
+
+  <!-- ===================== METHOD ===================== -->
+  <section class="band" id="method">
+    <div class="wrap">
+      <div class="head-row rise">
+        <div>
+          <p class="kicker">04 &mdash; Method</p>
+          <h2>The taxonomy picks the training data</h2>
+        </div>
+        <p class="dim">
+          Public Tamil&ndash;English corpora are gated or unusable, so the training set is
+          synthesised &mdash; which means every switch point is known ground truth rather than
+          a guess.
+        </p>
+      </div>
+
+      <div class="grid-3 rise">
+        <div class="tile">
+          <span class="idx">Step 01</span>
+          <h3>Build the corpus</h3>
+          <p style="margin-bottom:1.25rem">
+            MUCS 2021 needs an academic agreement. IndicVoices writes English loanwords in
+            Tamil script, destroying the language labels. So: Tamil from IndicVoices-R joined
+            to English from LibriSpeech.
+          </p>
+          <div class="spec-line"><span>Sample rate</span><b>16 kHz</b></div>
+          <div class="spec-line"><span>Segment length</span><b>2&ndash;8 s</b></div>
+          <div class="spec-line"><span>Split</span><b>80 / 10 / 10</b></div>
+        </div>
+
+        <div class="tile">
+          <span class="idx">Step 02</span>
+          <h3>Weight what fails</h3>
+          <p style="margin-bottom:1.25rem">
+            The sampler is the failure analysis translated into a data strategy. Segments with
+            many switch points &mdash; the ones the taxonomy flagged &mdash; are seen six times
+            as often as they occur.
+          </p>
+          <div class="spec-line"><span>Code-switched</span><b>&times;3</b></div>
+          <div class="spec-line"><span>High switch-point</span><b>&times;6</b></div>
+          <div class="spec-line"><span>Monolingual</span><b>&times;0.5</b></div>
+        </div>
+
+        <div class="tile">
+          <span class="idx">Step 03</span>
+          <h3>Adapt, don't retrain</h3>
+          <p style="margin-bottom:1.25rem">
+            Full fine-tuning on this much data would trade away the base model's general
+            speech ability. LoRA touches the attention projections and leaves the encoder and
+            language head frozen.
+          </p>
+          <div class="spec-line"><span>Rank / alpha</span><b>32 / 64</b></div>
+          <div class="spec-line"><span>Targets</span><b>q_proj, v_proj</b></div>
+          <div class="spec-line"><span>Trainable</span><b>3.5 M</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== CLOSE ===================== -->
+  <section class="band close">
+    <div class="wrap">
+      <h2 class="rise">Two billion people code-switch.<br>No ASR system expects it.</h2>
+      <p class="lede rise" style="max-width:52ch">
+        Tamil is one language pair. The method &mdash; categorise the failures, then weight the
+        training data by category &mdash; carries to Hinglish, Telugu, Kannada, and anywhere
+        else two languages share a sentence.
+      </p>
+      <div class="cta-row rise">
+        <a class="btn btn-primary" href="https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora">Get the adapter</a>
+        <a class="btn btn-ghost" href="https://github.com/Rvdhanush/indic_codeswitched_asr">Read the code</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <span class="meta">Tanglish ASR &middot; Built by Dhanush</span>
+    <nav>
+      <a href="https://github.com/Rvdhanush/indic_codeswitched_asr">Repository</a>
+      <a href="https://huggingface.co/Dhanush66-rv/whisper-small-tanglish-lora">Hugging Face</a>
+      <a href="https://github.com/Rvdhanush/indic_codeswitched_asr/blob/master/RESULTS.md">Full results</a>
+      <a href="https://github.com/Rvdhanush/indic_codeswitched_asr/blob/master/RESEARCH_JOURNAL.md">Research journal</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------------------------------------------------------------------
+     The utterance, as data. One source of truth for the waveform, the word
+     ribbon, and the switch-point count in the header.
+  --------------------------------------------------------------------- */
+  var SEGMENTS = [
+    { text: "Tomorrow meeting",       lang: "en",  span: 0.20 },
+    { text: "ku vara mudiyuma",       lang: "ta",  span: 0.21 },
+    { text: "I'll be 10 minutes late", lang: "en", span: 0.26 },
+    { text: "traffic problem",        lang: "en",  span: 0.18 },
+    { text: "iruku",                  lang: "ta",  span: 0.15 }
+  ];
+
+  /* --- word ribbon ---------------------------------------------------- */
+  var ribbon = document.getElementById("ribbon");
+  if (ribbon) {
+    SEGMENTS.forEach(function (seg) {
+      var el = document.createElement("div");
+      el.className = "seg " + (seg.lang === "en" ? "en" : "tam");
+      el.style.flex = seg.span + " 1 0";
+      el.innerHTML = '<span class="who">' + (seg.lang === "en" ? "English" : "Tamil") +
+                     "</span>" + seg.text;
+      ribbon.appendChild(el);
+    });
+  }
+
+  /* --- waveform ------------------------------------------------------- */
+  var canvas = document.getElementById("wave");
+  if (canvas && canvas.getContext) {
+    var ctx = canvas.getContext("2d");
+    var bars = [];
+    var W = 0, H = 0, dpr = 1;
+    var t0 = performance.now();
+
+    function css(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    // Deterministic pseudo-noise so the waveform is stable across redraws.
+    function noise(i, salt) {
+      var x = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
+      return x - Math.floor(x);
+    }
+
+    function build() {
+      var BAR = 3, GAP = 3;
+      var step = BAR + GAP;
+      var count = Math.max(24, Math.floor(W / step));
+      bars = [];
+
+      // Where each segment starts and ends, normalised 0..1
+      var total = SEGMENTS.reduce(function (s, x) { return s + x.span; }, 0);
+      var edges = [];
+      var acc = 0;
+      SEGMENTS.forEach(function (seg) {
+        edges.push({ from: acc / total, to: (acc + seg.span) / total, lang: seg.lang });
+        acc += seg.span;
+      });
+
+      for (var i = 0; i < count; i++) {
+        var p = i / (count - 1);
+        var seg = edges[edges.length - 1];
+        for (var j = 0; j < edges.length; j++) {
+          if (p >= edges[j].from && p <= edges[j].to) { seg = edges[j]; break; }
+        }
+        // Local position inside the segment, used to taper each word group
+        // so the trace reads as speech rather than a flat block.
+        var local = (p - seg.from) / Math.max(0.0001, seg.to - seg.from);
+        var envelope = Math.sin(Math.PI * Math.min(1, Math.max(0, local)));
+        var syllable = 0.55 + 0.45 * Math.abs(Math.sin(local * Math.PI * 7 + noise(i, 3) * 2));
+        var amp = (0.20 + 0.80 * envelope * syllable) * (0.72 + 0.28 * noise(i, 1));
+        bars.push({ x: i * step, amp: amp, lang: seg.lang, phase: noise(i, 7) * Math.PI * 2 });
+      }
+      // Switch-point positions, in bar index terms
+      bars.edges = edges;
+    }
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var rect = canvas.getBoundingClientRect();
+      W = rect.width; H = rect.height;
+      canvas.width = Math.floor(W * dpr);
+      canvas.height = Math.floor(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      build();
+      if (reduced) draw(0);
+    }
+
+    function draw(now) {
+      var time = (now - t0) / 1000;
+      var taC = css("--ta") || "#F5A524";
+      var enC = css("--en") || "#57C7E3";
+      var edgeC = css("--edge") || "rgba(255,255,255,0.07)";
+      var mid = H / 2;
+
+      ctx.clearRect(0, 0, W, H);
+
+      // switch-point guides
+      if (bars.edges) {
+        ctx.strokeStyle = edgeC;
+        ctx.lineWidth = 1;
+        for (var e = 1; e < bars.edges.length; e++) {
+          var x = Math.round(bars.edges[e].from * W) + 0.5;
+          ctx.beginPath();
+          ctx.moveTo(x, 6);
+          ctx.lineTo(x, H - 6);
+          ctx.stroke();
+        }
+      }
+
+      // A slow sweep that lifts bars as it passes, so the trace feels live
+      // without anything actually moving position.
+      var sweep = reduced ? -1 : ((time * 0.26) % 1.6) - 0.3;
+
+      for (var i = 0; i < bars.length; i++) {
+        var b = bars[i];
+        var p = b.x / Math.max(1, W);
+        var breathe = reduced ? 1 : 0.9 + 0.1 * Math.sin(time * 1.6 + b.phase);
+        var near = 1 - Math.min(1, Math.abs(p - sweep) / 0.14);
+        var lift = near > 0 ? near * near * 0.42 : 0;
+        var h = Math.max(2, b.amp * breathe * (1 + lift) * (H * 0.44));
+
+        ctx.fillStyle = b.lang === "en" ? enC : taC;
+        ctx.globalAlpha = 0.42 + 0.5 * b.amp + lift * 0.35;
+        ctx.fillRect(b.x, mid - h, 3, h * 2);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function loop(now) { draw(now); requestAnimationFrame(loop); }
+
+    if ("ResizeObserver" in window) new ResizeObserver(resize).observe(canvas);
+    else window.addEventListener("resize", resize);
+
+    resize();
+    if (!reduced) requestAnimationFrame(loop);
+
+    // Repaint on theme flip so the trace follows the tokens.
+    if (window.matchMedia) {
+      var mq = window.matchMedia("(prefers-color-scheme: dark)");
+      if (mq.addEventListener) mq.addEventListener("change", function () { draw(performance.now()); });
+    }
+  }
+
+  /* --- repetition collapse -------------------------------------------- */
+  var loopHost = document.getElementById("loop");
+  if (loopHost) {
+    var WORD = "பிரிந்து"; /* பிரிந்து */
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < 25; i++) {
+      var s = document.createElement("span");
+      s.textContent = WORD + " ";
+      s.style.animationDelay = (i * 55) + "ms";
+      s.style.animationPlayState = reduced ? "running" : "paused";
+      frag.appendChild(s);
+    }
+    loopHost.appendChild(frag);
+    loopHost.appendChild(document.createTextNode("…"));
+  }
+
+  /* --- scroll choreography -------------------------------------------- */
+  function activate(el) {
+    el.classList.add("in");
+
+    if (el.id === "chart" || el.querySelector(".bar-row")) {
+      el.querySelectorAll(".bar-row").forEach(function (row, i) {
+        var v = parseFloat(row.getAttribute("data-v")) || 0;
+        var fill = row.querySelector(".fill");
+        setTimeout(function () { fill.style.width = (v * 100) + "%"; }, reduced ? 0 : 120 * i);
+      });
+    }
+
+    if (el.querySelector("#loop") && !reduced) {
+      el.querySelectorAll("#loop span").forEach(function (s) {
+        s.style.animationPlayState = "running";
+      });
+    }
+  }
+
+  var targets = document.querySelectorAll(".rise");
+  if (!("IntersectionObserver" in window)) {
+    targets.forEach(activate);
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) { activate(entry.target); io.unobserve(entry.target); }
+      });
+    }, { threshold: 0.18, rootMargin: "0px 0px -8% 0px" });
+    targets.forEach(function (el) { io.observe(el); });
+  }
+
+  /* --- nav state ------------------------------------------------------ */
+  var nav = document.getElementById("nav");
+  var onScroll = function () { nav.classList.toggle("stuck", window.scrollY > 12); };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+})();
+</script>
